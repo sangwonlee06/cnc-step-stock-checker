@@ -28,6 +28,9 @@ class CylinderCandidate:
     rotational_face_count: int
 
 
+MM_TO_INCH = 1.0 / 25.4
+
+
 @dataclass(frozen=True)
 class BoundingDimensions:
     x: float
@@ -53,8 +56,8 @@ def analyze_step_file(path: str | Path) -> dict:
 
     rod = detect_cylindrical_stock(shape, occ)
     if rod is not None:
-        length = _axis_aligned_length(shape, rod.axis, occ)
-        diameter = _axis_aligned_radial_diameter(shape, rod.axis, occ, rod.max_radius)
+        length = _axis_aligned_length(shape, rod.axis, occ) * MM_TO_INCH
+        diameter = _axis_aligned_radial_diameter(shape, rod.axis, occ, rod.max_radius) * MM_TO_INCH
         formatted = format_rod(diameter, length)
         return {
             "classification": "cylindrical",
@@ -69,7 +72,7 @@ def analyze_step_file(path: str | Path) -> dict:
         }
 
     dims = axis_aligned_bounding_dimensions(shape, occ)
-    length, width, height = dims.sorted_stock()
+    length, width, height = (v * MM_TO_INCH for v in dims.sorted_stock())
     formatted = format_prismatic(length, width, height)
     return {
         "classification": "prismatic",
@@ -79,7 +82,7 @@ def analyze_step_file(path: str | Path) -> dict:
         "height_in": ceil_thousandth(height),
         "details": {
             "bounding": "OpenCASCADE precise axis-aligned bounding box; no machining allowance added.",
-            "axis_aligned_in": tuple(ceil_thousandth(v) for v in dims.as_tuple()),
+            "axis_aligned_in": tuple(ceil_thousandth(v * MM_TO_INCH) for v in dims.as_tuple()),
         },
     }
 
@@ -88,10 +91,11 @@ def parse_step_file(path: str | Path, occ: Any | None = None) -> Any:
     occ = occ or _load_occ()
     step_path = str(Path(path).resolve())
 
-    # Force OpenCASCADE's transfer target to inches so downstream geometry is
-    # unit-consistent even when the STEP file is authored in mm.
+    # Leave cascade.unit at the default "MM" so TransferRoots always produces
+    # millimetre geometry — the well-tested default path in every OCCT build.
+    # The caller converts to inches explicitly after bounding-box calculation.
     if occ.Interface_Static is not None:
-        _call_any(occ.Interface_Static, ("SetCVal_s", "SetCVal"), "xstep.cascade.unit", "INCH")
+        _call_any(occ.Interface_Static, ("SetCVal_s", "SetCVal"), "xstep.cascade.unit", "MM")
 
     reader = occ.STEPControl_Reader()
     status = reader.ReadFile(step_path)
