@@ -22,6 +22,11 @@ async function analyzeFile(file) {
     return;
   }
 
+  if (file.size >= 1024 * 1024) {
+    setStatus("File must be smaller than 1 MB.", "error");
+    return;
+  }
+
   const form = new FormData();
   form.append("file", file);
 
