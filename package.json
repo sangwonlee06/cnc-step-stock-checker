@@ -1,0 +1,31 @@
+{
+  "name": "cnc-step-stock-checker",
+  "version": "0.1.0",
+  "description": "Desktop wrapper for a CNC STEP bounding dimension checker.",
+  "main": "desktop/main.js",
+  "private": true,
+  "scripts": {
+    "desktop": "electron .",
+    "dist": "electron-builder",
+    "test": "python -m pytest"
+  },
+  "build": {
+    "appId": "com.cncstepstockchecker.app",
+    "productName": "CNC STEP Stock Checker",
+    "asar": false,
+    "files": [
+      "desktop/**/*",
+      "backend/**/*",
+      "frontend/**/*",
+      "requirements.txt",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity"
+    }
+  },
+  "devDependencies": {
+    "electron": "^39.2.6",
+    "electron-builder": "^26.0.12"
+  }
+}

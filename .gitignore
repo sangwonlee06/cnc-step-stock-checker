@@ -11,6 +11,12 @@ htmlcov/
 build/
 dist/
 
+# Node / Electron artifacts
+node_modules/
+out/
+release/
+*.log
+
 # Virtual environments
 .venv/
 venv/
@@ -18,4 +24,3 @@ venv/
 # IDE files
 .idea/
 .vscode/
-

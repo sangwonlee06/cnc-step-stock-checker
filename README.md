@@ -1,6 +1,11 @@
-# CNC STEP Stock Checker
+# CNC STEP Stock Checker Desktop
 
-A small FastAPI web tool that accepts `.stp` / `.step` files and returns CNC stock dimensions in inches, rounded upward to the nearest `0.001`.
+A desktop STEP analysis app that accepts `.stp` / `.step` files and returns CNC
+stock dimensions in inches, rounded upward to the nearest `0.001`.
+
+The desktop app uses Electron for the window and starts the existing FastAPI
+analysis backend locally on `127.0.0.1`. Files are processed on the user's
+machine instead of a hosted server.
 
 ## What It Does
 
@@ -23,6 +28,7 @@ A small FastAPI web tool that accepts `.stp` / `.step` files and returns CNC sto
 
 ## Privacy
 
+- In desktop mode, STEP files stay on the local machine.
 - Uploaded STEP files are written to a temporary file only for the current analysis.
 - The temporary file is deleted immediately after the result is returned, even when analysis fails.
 - The application is designed not to retain uploaded STEP files as saved jobs or history.
@@ -32,12 +38,12 @@ If you deploy behind a proxy, CDN, APM agent, or platform logging layer, make su
 
 ## Security
 
-The backend applies baseline production protections:
+The local backend applies baseline protections:
 
 - Security headers, including CSP, frame blocking, MIME sniffing protection, referrer policy, permissions policy, and HSTS.
 - Upload size limiting for STEP files.
 - Per-client rate limiting on `/api/analyze`.
-- No wildcard CORS by default. The frontend uses same-origin API requests, so CORS is not needed for the normal Railway deployment.
+- No wildcard CORS by default. The frontend uses same-origin API requests.
 
 Optional environment variables:
 
@@ -49,9 +55,7 @@ TRUST_PROXY_HEADERS=true
 ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com
 ```
 
-For Railway, keep `TRUST_PROXY_HEADERS=true` so rate limiting uses the original
-client IP from proxy headers. Set `ALLOWED_ORIGINS` only if another origin needs
-browser access to the API.
+Set `ALLOWED_ORIGINS` only if another origin needs browser access to the API.
 
 ## Cylinder Detection
 
@@ -64,11 +68,11 @@ Rod classification is intentionally strict:
 
 This avoids the common false positive where corner fillets or near-round polygons look cylindrical from a bounding box alone.
 
-## Local Setup
+## Setup
 
 OpenCASCADE Python wheels generally support Python 3.10-3.12. Python 3.14 is too new for the CAD dependency used here.
 
-Create a virtual environment and install dependencies:
+Create a Python virtual environment and install backend dependencies:
 
 ```bash
 cd cnc-step-stock-checker
@@ -84,15 +88,52 @@ If `python3.12` is not available on your machine, install Python 3.12 from pytho
 
 If the OpenCASCADE wheel does not install cleanly on macOS, use the conda option below.
 
+Install Electron dependencies:
+
+```bash
+npm install
+```
+
 ### Alternative with conda
 
 ```bash
 conda create -n cnc-stock python=3.11 -c conda-forge pythonocc-core fastapi uvicorn python-multipart
 conda activate cnc-stock
-python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+python -m pip install -r requirements.txt
+npm install
 ```
 
-## Local Run
+## Desktop Run
+
+```bash
+npm run desktop
+```
+
+The Electron app starts the FastAPI backend on an available local port beginning
+at `8765`, then opens the app window.
+
+If the Python executable is not auto-detected, set `PYTHON` explicitly:
+
+```bash
+PYTHON=/path/to/python3.12 npm run desktop
+```
+
+## Desktop Package
+
+Create an Electron build:
+
+```bash
+npm run dist
+```
+
+Current packaging note: the Electron package includes the app code, but it does
+not bundle a Python runtime or Python site packages. The machine running the
+packaged app still needs Python 3.12 and the dependencies from `requirements.txt`
+installed, or `PYTHON` must point to a compatible environment.
+
+## Local Web Run
+
+You can still run the FastAPI web app directly:
 
 ```bash
 uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
@@ -104,47 +145,7 @@ Then open:
 http://127.0.0.1:8000
 ```
 
-If port `8000` is already in use, run on a different port:
-
-```bash
-python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8001
-```
-
-To check what is already bound to port `8000` on macOS:
-
-```bash
-lsof -nP -iTCP:8000 -sTCP:LISTEN
-```
-
-## Deployment
-
-The app is deployed on Railway using the repository `Dockerfile`. Docker keeps
-the Python and OpenCASCADE runtime consistent between local development and
-production.
-
-### Railway
-
-Railway should detect the root `Dockerfile` automatically when connected to the
-GitHub repository.
-
-The container starts:
-
-```text
-backend.app.main:app
-```
-
-The app listens on Railway's injected `PORT` environment variable, with `8080`
-as the local fallback.
-
-For a custom domain, configure Railway public networking for the service and use:
-
-```text
-8080
-```
-
-as the internal/container port if Railway asks for one.
-
-### Local Docker
+## Local Docker
 
 Build the production image from the repository root:
 
@@ -177,6 +178,7 @@ backend.app.main:app
 
 - `backend/app/step_analyzer.py`: STEP parsing, bounding boxes, cylinder detection, output formatting.
 - `backend/app/main.py`: FastAPI upload endpoint.
+- `desktop/main.js`: Electron shell that starts the local backend and opens the app window.
 - `frontend/index.html`: Drag-and-drop UI.
 - `frontend/app.js`: Upload handling and result rendering.
 - `frontend/styles.css`: Minimal responsive styling.
