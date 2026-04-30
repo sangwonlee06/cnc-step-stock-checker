@@ -48,7 +48,7 @@ The local backend applies baseline protections:
 Optional environment variables:
 
 ```text
-MAX_UPLOAD_MB=100
+MAX_UPLOAD_MB=1
 RATE_LIMIT_REQUESTS=30
 RATE_LIMIT_WINDOW_SECONDS=300
 TRUST_PROXY_HEADERS=true
