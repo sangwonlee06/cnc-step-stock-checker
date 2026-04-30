@@ -17,8 +17,12 @@ function isStepFile(file) {
 }
 
 async function analyzeFile(file) {
-  if (!file || !isStepFile(file)) {
-    setStatus("Choose a .stp or .step file.", "error");
+  if (!file) {
+    return;
+  }
+
+  if (!isStepFile(file)) {
+    setStatus(`"${file.name}" is not a STEP file. Choose a .stp or .step file.`, "error");
     return;
   }
 
