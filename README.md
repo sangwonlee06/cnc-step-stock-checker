@@ -95,11 +95,33 @@ lsof -nP -iTCP:8000 -sTCP:LISTEN
 
 ## Deployment
 
-The recommended deployment path is Docker plus Google Cloud Run. Docker keeps the
-Python and OpenCASCADE runtime consistent between local development and
+The app is deployed on Railway using the repository `Dockerfile`. Docker keeps
+the Python and OpenCASCADE runtime consistent between local development and
 production.
 
-### Docker
+### Railway
+
+Railway should detect the root `Dockerfile` automatically when connected to the
+GitHub repository.
+
+The container starts:
+
+```text
+backend.app.main:app
+```
+
+The app listens on Railway's injected `PORT` environment variable, with `8080`
+as the local fallback.
+
+For a custom domain, configure Railway public networking for the service and use:
+
+```text
+8080
+```
+
+as the internal/container port if Railway asks for one.
+
+### Local Docker
 
 Build the production image from the repository root:
 
@@ -127,50 +149,6 @@ The container uses Python 3.12 and starts the ASGI app at:
 ```text
 backend.app.main:app
 ```
-
-### Cloud Run
-
-Prerequisites:
-
-- Google Cloud SDK installed.
-- A Google Cloud project with billing enabled.
-- Cloud Run and Cloud Build APIs enabled.
-- Permission to deploy Cloud Run services.
-
-Deploy from the repository root:
-
-```bash
-gcloud run deploy cnc-step-stock-checker \
-  --project YOUR_GCP_PROJECT_ID \
-  --source . \
-  --region us-west1 \
-  --allow-unauthenticated \
-  --port 8080 \
-  --cpu 1 \
-  --memory 2Gi \
-  --concurrency 1 \
-  --min-instances 0 \
-  --max-instances 3 \
-  --timeout 300
-```
-
-Replace `YOUR_GCP_PROJECT_ID` with your actual Google Cloud project ID. The
-container listens on Cloud Run's injected `PORT` environment variable.
-
-For other deployment targets, point your process manager or hosting platform at
-the ASGI app:
-
-```text
-backend.app.main:app
-```
-
-Typical production command:
-
-```bash
-uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
-```
-
-Use your platform's assigned port if it injects one through environment variables.
 
 ## Core Files
 
