@@ -95,7 +95,70 @@ lsof -nP -iTCP:8000 -sTCP:LISTEN
 
 ## Deployment
 
-For deployment, point your process manager or hosting platform at the ASGI app:
+The recommended deployment path is Docker plus Google Cloud Run. Docker keeps the
+Python and OpenCASCADE runtime consistent between local development and
+production.
+
+### Docker
+
+Build the production image from the repository root:
+
+```bash
+docker build -t cnc-step-stock-checker:local .
+```
+
+Run it locally:
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -e PORT=8080 \
+  cnc-step-stock-checker:local
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080
+```
+
+The container uses Python 3.12 and starts the ASGI app at:
+
+```text
+backend.app.main:app
+```
+
+### Cloud Run
+
+Prerequisites:
+
+- Google Cloud SDK installed.
+- A Google Cloud project with billing enabled.
+- Cloud Run and Cloud Build APIs enabled.
+- Permission to deploy Cloud Run services.
+
+Deploy from the repository root:
+
+```bash
+gcloud run deploy cnc-step-stock-checker \
+  --project YOUR_GCP_PROJECT_ID \
+  --source . \
+  --region us-west1 \
+  --allow-unauthenticated \
+  --port 8080 \
+  --cpu 1 \
+  --memory 2Gi \
+  --concurrency 1 \
+  --min-instances 0 \
+  --max-instances 3 \
+  --timeout 300
+```
+
+Replace `YOUR_GCP_PROJECT_ID` with your actual Google Cloud project ID. The
+container listens on Cloud Run's injected `PORT` environment variable.
+
+For other deployment targets, point your process manager or hosting platform at
+the ASGI app:
 
 ```text
 backend.app.main:app
