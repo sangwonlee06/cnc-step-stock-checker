@@ -42,7 +42,7 @@ The backend applies baseline production protections:
 Optional environment variables:
 
 ```text
-MAX_UPLOAD_MB=50
+MAX_UPLOAD_MB=100
 RATE_LIMIT_REQUESTS=30
 RATE_LIMIT_WINDOW_SECONDS=300
 TRUST_PROXY_HEADERS=true
