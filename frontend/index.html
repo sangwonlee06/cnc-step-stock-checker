@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CNC STEP Stock Checker</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace">
+        <div class="panel">
+          <div class="title-row">
+            <div>
+              <p class="eyebrow">STEP to stock size</p>
+              <h1>CNC Bounding Stock</h1>
+            </div>
+            <span class="unit">IN</span>
+          </div>
+
+          <label id="drop-zone" class="drop-zone" for="file-input">
+            <input id="file-input" type="file" accept=".stp,.step" />
+            <span class="upload-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                width="22"
+                height="22"
+                fill="none"
+                stroke="#ffffff"
+                stroke-width="2.75"
+                stroke-linecap="round"
+                focusable="false"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </span>
+            <span class="drop-title">Drop STEP file</span>
+            <span class="drop-subtitle">or click to choose .stp / .step</span>
+          </label>
+
+          <div class="upload-meta-row">
+            <div id="status" class="status" role="status">Ready for a STEP file.</div>
+          </div>
+
+          <aside class="privacy-note" aria-label="Confidentiality notice">
+            <p class="privacy-copy">
+              STEP files are processed for this analysis and not retained afterward.
+            </p>
+          </aside>
+        </div>
+
+        <div class="result-panel">
+          <p class="eyebrow">Result</p>
+          <div class="result-header">
+            <h2 class="result-title">Bounding Dimensions</h2>
+            <span class="result-unit">IN</span>
+          </div>
+          <output id="result" class="result">-.--- X -.--- X -.---</output>
+          <div id="meta" class="meta">
+            Rounded up to 0.001 in. No machining allowance added.
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

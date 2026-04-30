@@ -1,0 +1,8 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+
+# Provides the OCP OpenCASCADE Python modules used by the STEP analyzer.
+# Install with Python 3.10-3.12. Python 3.14 is not currently supported by
+# the common OpenCASCADE Python wheels.
+cadquery-ocp>=7.7
