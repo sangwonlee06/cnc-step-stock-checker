@@ -30,6 +30,29 @@ A small FastAPI web tool that accepts `.stp` / `.step` files and returns CNC sto
 
 If you deploy behind a proxy, CDN, APM agent, or platform logging layer, make sure those services are also configured not to retain upload payloads.
 
+## Security
+
+The backend applies baseline production protections:
+
+- Security headers, including CSP, frame blocking, MIME sniffing protection, referrer policy, permissions policy, and HSTS.
+- Upload size limiting for STEP files.
+- Per-client rate limiting on `/api/analyze`.
+- No wildcard CORS by default. The frontend uses same-origin API requests, so CORS is not needed for the normal Railway deployment.
+
+Optional environment variables:
+
+```text
+MAX_UPLOAD_MB=50
+RATE_LIMIT_REQUESTS=30
+RATE_LIMIT_WINDOW_SECONDS=300
+TRUST_PROXY_HEADERS=true
+ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com
+```
+
+For Railway, keep `TRUST_PROXY_HEADERS=true` so rate limiting uses the original
+client IP from proxy headers. Set `ALLOWED_ORIGINS` only if another origin needs
+browser access to the API.
+
 ## Cylinder Detection
 
 Rod classification is intentionally strict:
