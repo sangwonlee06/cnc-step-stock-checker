@@ -5,6 +5,7 @@ const resultEl = document.querySelector("#result");
 const metaEl = document.querySelector("#meta");
 const unitToggle = document.querySelector("#unit-toggle");
 const resultUnitEl = document.querySelector("#result-unit");
+const detectedMaterialEl = document.querySelector("#detected-material");
 
 const allowedExtensions = [".stp", ".step"];
 
@@ -88,9 +89,13 @@ async function analyzeFile(file) {
     resultEl.textContent = formatResult(payload);
     setStatus("Analysis complete.", "success");
     metaEl.textContent = "Rounded up. No machining allowance added.";
+    detectedMaterialEl.textContent = payload.detected_material
+      ? `Material: ${payload.detected_material}`
+      : "";
   } catch (error) {
     resultEl.textContent = "-.--- X -.--- X -.---";
     metaEl.textContent = "No result.";
+    detectedMaterialEl.textContent = "";
     setStatus(error.message, "error");
   }
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING
 from pathlib import Path
@@ -45,6 +46,80 @@ class BoundingDimensions:
         return tuple(sorted((self.x, self.y, self.z)))
 
 
+def _extract_step_material(path: str | Path) -> str | None:
+    """Scan a STEP file's text for material hints embedded by the CAD tool."""
+    try:
+        text = Path(path).read_text(errors="replace")
+    except OSError:
+        return None
+
+    # Collect strings from entities that typically carry material info.
+    snippets: list[str] = []
+    for m in re.finditer(
+        r"(?:PRODUCT|MATERIAL_DESIGNATION|DESCRIPTIVE_REPRESENTATION_ITEM)"
+        r"\s*\(([^)]*)\)",
+        text,
+    ):
+        snippets.append(m.group(1))
+    for m in re.finditer(r"FILE_(?:DESCRIPTION|NAME)\s*\(([^)]*)\)", text):
+        snippets.append(m.group(1))
+
+    targets = snippets + [text] if snippets else [text]
+
+    # Ordered most-specific first; first match wins.
+    patterns: list[tuple[re.Pattern[str], str]] = [
+        (re.compile(r"\b(?:al(?:uminu?m)?[\s\-_]*)?7075\b", re.I), "Aluminum 7075"),
+        (re.compile(r"\b(?:al(?:uminu?m)?[\s\-_]*)?2024\b", re.I), "Aluminum 2024"),
+        (re.compile(r"\b(?:al(?:uminu?m)?[\s\-_]*)?6063\b", re.I), "Aluminum 6063"),
+        (re.compile(r"\b(?:al(?:uminu?m)?[\s\-_]*)?6061\b", re.I), "Aluminum 6061"),
+        (re.compile(r"\b(?:al(?:uminu?m)?[\s\-_]*)?5052\b", re.I), "Aluminum 5052"),
+        (re.compile(r"\b(?:steel[\s\-_]*)?4140\b", re.I), "Steel 4140"),
+        (re.compile(r"\b(?:steel[\s\-_]*)?4130\b", re.I), "Steel 4130"),
+        (re.compile(r"\b12L14\b", re.I), "Steel 12L14"),
+        (re.compile(r"\b(?:steel[\s\-_]*)?1018\b", re.I), "Steel 1018"),
+        (re.compile(r"\bO[\s\-_]*1[\s\-_]*tool[\s\-_]*steel\b", re.I), "Steel O1 Tool Steel"),
+        (re.compile(r"\bA[\s\-_]*36\b", re.I), "Steel A36"),
+        (re.compile(r"\b(?:ss|stainless[\s\-_]*(?:steel)?)[\s\-_]*17[\s\-_]*4\b", re.I), "Stainless Steel 17-4 PH"),
+        (re.compile(r"\b(?:ss|stainless[\s\-_]*(?:steel)?)[\s\-_]*316\b", re.I), "Stainless Steel 316"),
+        (re.compile(r"\b(?:ss|stainless[\s\-_]*(?:steel)?)[\s\-_]*304\b", re.I), "Stainless Steel 304"),
+        (re.compile(r"\b(?:ss|stainless[\s\-_]*(?:steel)?)[\s\-_]*410\b", re.I), "Stainless Steel 410"),
+        (re.compile(r"\b(?:ss|stainless[\s\-_]*(?:steel)?)[\s\-_]*303\b", re.I), "Stainless Steel 303"),
+        (re.compile(r"\bbronze[\s\-_]*932\b|932[\s\-_]*bronze\b", re.I), "Bronze 932"),
+        (re.compile(r"\bbronze\b", re.I), "Bronze 932"),
+        (re.compile(r"\bbrass[\s\-_]*360\b|360[\s\-_]*brass\b", re.I), "Brass 360"),
+        (re.compile(r"\bbrass\b", re.I), "Brass 360"),
+        (re.compile(r"\bcopper[\s\-_]*110\b|110[\s\-_]*copper\b", re.I), "Copper 110"),
+        (re.compile(r"\bcopper\b", re.I), "Copper 110"),
+        (re.compile(r"\btitanium[\s\-_]*(?:gr(?:ade)?[\s\-_]*)?5\b|Ti[\s\-_]*6Al[\s\-_]*4V", re.I), "Titanium Grade 5"),
+        (re.compile(r"\btitanium[\s\-_]*(?:gr(?:ade)?[\s\-_]*)?2\b", re.I), "Titanium Grade 2"),
+        (re.compile(r"\btitanium\b", re.I), "Titanium Grade 2"),
+        (re.compile(r"\binconel[\s\-_]*718\b", re.I), "Inconel 718"),
+        (re.compile(r"\binconel\b", re.I), "Inconel 718"),
+        (re.compile(r"\bpeek\b|polyetheretherketone", re.I), "PEEK"),
+        (re.compile(r"\bptfe\b|\bteflon\b|polytetrafluoroethylene", re.I), "PTFE (Teflon)"),
+        (re.compile(r"\bultem\b|\bpei\b|polyetherimide", re.I), "Ultem (PEI)"),
+        (re.compile(r"\bpvdf\b|\bkynar\b|polyvinylidene[\s\-_]*fluoride", re.I), "PVDF (Kynar)"),
+        (re.compile(r"\buhmw\b", re.I), "UHMW PE"),
+        (re.compile(r"\bhdpe\b|high[\s\-_]*density[\s\-_]*polyethylene", re.I), "HDPE"),
+        (re.compile(r"\bpolypropylene\b", re.I), "Polypropylene"),
+        (re.compile(r"\bdelrin\b|\bacetal\b|\bpom\b", re.I), "Delrin (Acetal)"),
+        (re.compile(r"\bnylon[\s\-_]*6[\s/\-_]*6\b|\bpa[\s\-_]*66\b", re.I), "Nylon 6/6"),
+        (re.compile(r"\bnylon\b|\bpolyamide\b", re.I), "Nylon 6/6"),
+        (re.compile(r"\bpolycarbonate\b|\blexan\b", re.I), "Polycarbonate"),
+        (re.compile(r"\bacrylic\b|\bpmma\b|\bplexiglas\b", re.I), "Acrylic (PMMA)"),
+        (re.compile(r"\babs\b|acrylonitrile[\s\-_]*butadiene[\s\-_]*styrene", re.I), "ABS"),
+        (re.compile(r"\bal(?:uminu?m)\b", re.I), "Aluminum 6061"),
+        (re.compile(r"\bsteel\b", re.I), "Steel 1018"),
+        (re.compile(r"\bstainless\b", re.I), "Stainless Steel 304"),
+    ]
+
+    for target in targets:
+        for pat, name in patterns:
+            if pat.search(target):
+                return name
+    return None
+
+
 def analyze_step_file(path: str | Path) -> dict:
     """Parse a STEP file, classify stock shape, and return formatted dimensions.
 
@@ -53,6 +128,7 @@ def analyze_step_file(path: str | Path) -> dict:
 
     occ = _load_occ()
     shape = parse_step_file(path, occ)
+    detected_material = _extract_step_material(path)
 
     rod = detect_cylindrical_stock(shape, occ)
     if rod is not None:
@@ -68,6 +144,7 @@ def analyze_step_file(path: str | Path) -> dict:
             "length_in": ceil_thousandth(length),
             "diameter_mm": diameter_mm,
             "length_mm": length_mm,
+            "detected_material": detected_material,
             "details": {
                 "cylindrical_faces": rod.cylindrical_face_count,
                 "rotational_faces": rod.rotational_face_count,
@@ -88,6 +165,7 @@ def analyze_step_file(path: str | Path) -> dict:
         "length_mm": length_mm,
         "width_mm": width_mm,
         "height_mm": height_mm,
+        "detected_material": detected_material,
         "details": {
             "bounding": "OpenCASCADE precise axis-aligned bounding box; no machining allowance added.",
             "axis_aligned_in": tuple(ceil_thousandth(v * MM_TO_INCH) for v in dims.as_tuple()),

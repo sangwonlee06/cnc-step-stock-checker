@@ -234,6 +234,13 @@ h1 {
   line-height: 1.5;
 }
 
+.detected-material {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
 @media (max-width: 780px) {
   .shell {
     padding: 18px;
