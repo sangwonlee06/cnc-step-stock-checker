@@ -163,7 +163,7 @@ def analyze_step_file(path: str | Path) -> dict:
         }
 
     logger.debug("Classified as prismatic")
-    dims = oriented_bounding_dimensions(shape, occ)
+    dims = minimum_bounding_dimensions(shape, occ)
     if dims.x <= 0 or dims.y <= 0 or dims.z <= 0:
         raise StepAnalysisError(
             "Could not compute valid bounding dimensions. "
@@ -183,8 +183,8 @@ def analyze_step_file(path: str | Path) -> dict:
         "height_mm": height_mm,
         "detected_material": detected_material,
         "details": {
-            "bounding": "OpenCASCADE oriented bounding box; no machining allowance added.",
-            "oriented_in": tuple(ceil_thousandth(v * MM_TO_INCH) for v in dims.as_tuple()),
+            "bounding": "Minimum bounding box (tighter of axis-aligned and oriented); no machining allowance added.",
+            "bounding_in": tuple(ceil_thousandth(v * MM_TO_INCH) for v in dims.as_tuple()),
         },
     }
 
@@ -241,6 +241,22 @@ def oriented_bounding_dimensions(shape: Any, occ: Any | None = None) -> Bounding
     except Exception:
         logger.warning("OBB computation failed, falling back to axis-aligned bounding box")
         return axis_aligned_bounding_dimensions(shape, occ)
+
+
+def minimum_bounding_dimensions(shape: Any, occ: Any | None = None) -> BoundingDimensions:
+    """Return the tighter of axis-aligned and oriented bounding boxes."""
+    occ = occ or _load_occ()
+    aabb = axis_aligned_bounding_dimensions(shape, occ)
+    obb = oriented_bounding_dimensions(shape, occ)
+
+    aabb_vol = aabb.x * aabb.y * aabb.z
+    obb_vol = obb.x * obb.y * obb.z
+
+    if obb_vol > 0 and obb_vol < aabb_vol:
+        logger.debug("Using OBB (volume %.1f mm³ vs AABB %.1f mm³)", obb_vol, aabb_vol)
+        return obb
+    logger.debug("Using AABB (volume %.1f mm³ vs OBB %.1f mm³)", aabb_vol, obb_vol)
+    return aabb
 
 
 def detect_cylindrical_stock(shape: Any, occ: Any | None = None, tolerance: float = 1e-5) -> CylinderCandidate | None:
