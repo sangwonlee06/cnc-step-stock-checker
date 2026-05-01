@@ -1,7 +1,7 @@
 # CNC STEP Stock Checker Desktop
 
 A desktop STEP analysis app that accepts `.stp` / `.step` files and returns CNC
-stock dimensions in inches, rounded upward to the nearest `0.001`.
+stock dimensions in inches or millimetres, rounded upward.
 
 The desktop app uses Electron for the window and starts the existing FastAPI
 analysis backend locally on `127.0.0.1`. Files are processed on the user's
@@ -9,7 +9,7 @@ machine instead of a hosted server.
 
 ## What It Does
 
-- Drag-and-drop STEP upload.
+- Drag-and-drop STEP upload (1 MB max).
 - Parses exact B-Rep geometry through OpenCASCADE.
 - Uses a precise OpenCASCADE axis-aligned bounding box for non-round parts.
 - Returns prismatic stock as:
@@ -25,6 +25,7 @@ machine instead of a hosted server.
   ```
 
 - Adds no machining allowance or buffer.
+- Toggle between **inches** (rounded up to 0.001 in) and **millimetres** (rounded up to 0.01 mm) using the IN/MM button.
 
 ## Privacy
 
