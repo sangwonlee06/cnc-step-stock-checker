@@ -3,8 +3,43 @@ const fileInput = document.querySelector("#file-input");
 const statusEl = document.querySelector("#status");
 const resultEl = document.querySelector("#result");
 const metaEl = document.querySelector("#meta");
+const unitToggle = document.querySelector("#unit-toggle");
+const resultUnitEl = document.querySelector("#result-unit");
 
 const allowedExtensions = [".stp", ".step"];
+
+let currentUnit = "in";
+let lastPayload = null;
+
+function ceilTo(value, decimals) {
+  const factor = Math.pow(10, decimals);
+  return Math.ceil(value * factor) / factor;
+}
+
+function formatResult(payload) {
+  if (currentUnit === "mm") {
+    if (payload.classification === "cylindrical") {
+      const dia = ceilTo(payload.diameter_in * 25.4, 2).toFixed(2);
+      const len = ceilTo(payload.length_in * 25.4, 2).toFixed(2);
+      return `DIA ${dia} X ${len}`;
+    }
+    const l = ceilTo(payload.length_in * 25.4, 2).toFixed(2);
+    const w = ceilTo(payload.width_in * 25.4, 2).toFixed(2);
+    const h = ceilTo(payload.height_in * 25.4, 2).toFixed(2);
+    return `${l} X ${w} X ${h}`;
+  }
+  return payload.format;
+}
+
+function setUnit(unit) {
+  currentUnit = unit;
+  const label = unit === "mm" ? "MM" : "IN";
+  unitToggle.textContent = label;
+  resultUnitEl.textContent = label;
+  if (lastPayload) {
+    resultEl.textContent = formatResult(lastPayload);
+  }
+}
 
 function setStatus(message, tone = "neutral") {
   statusEl.textContent = message;
@@ -49,20 +84,20 @@ async function analyzeFile(file) {
       throw new Error(payload.detail || "Unable to analyze this STEP file.");
     }
 
-    resultEl.textContent = payload.format;
+    lastPayload = payload;
+    resultEl.textContent = formatResult(payload);
     setStatus("Analysis complete.", "success");
-
-    if (payload.classification === "cylindrical") {
-      metaEl.textContent = "Rounded up to 0.001 in. No machining allowance added.";
-    } else {
-      metaEl.textContent = "Rounded up to 0.001 in. No machining allowance added.";
-    }
+    metaEl.textContent = "Rounded up. No machining allowance added.";
   } catch (error) {
     resultEl.textContent = "-.--- X -.--- X -.---";
     metaEl.textContent = "No result.";
     setStatus(error.message, "error");
   }
 }
+
+unitToggle.addEventListener("click", () => {
+  setUnit(currentUnit === "in" ? "mm" : "in");
+});
 
 dropZone.addEventListener("dragover", (event) => {
   event.preventDefault();
