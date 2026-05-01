@@ -37,6 +37,9 @@ function setUnit(unit) {
   const label = unit === "mm" ? "MM" : "IN";
   unitToggle.textContent = label;
   resultUnitEl.textContent = label;
+  metaEl.textContent = unit === "mm"
+    ? "Rounded up to 0.01 mm. No machining allowance added."
+    : "Rounded up to 0.001 in. No machining allowance added.";
   if (lastPayload) {
     resultEl.textContent = formatResult(lastPayload);
   }
@@ -88,7 +91,9 @@ async function analyzeFile(file) {
     lastPayload = payload;
     resultEl.textContent = formatResult(payload);
     setStatus("Analysis complete.", "success");
-    metaEl.textContent = "Rounded up. No machining allowance added.";
+    metaEl.textContent = currentUnit === "mm"
+      ? "Rounded up to 0.01 mm. No machining allowance added."
+      : "Rounded up to 0.001 in. No machining allowance added.";
     detectedMaterialEl.textContent = payload.detected_material
       ? `Material: ${payload.detected_material}`
       : "";
