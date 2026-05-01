@@ -93,8 +93,8 @@ async function analyzeFile(file) {
     resultEl.textContent = formatResult(payload);
     setStatus("Analysis complete.", "success");
     metaEl.textContent = currentUnit === "mm"
-      ? "Rounded up to 0.01 mm. No machining allowance added."
-      : "Rounded up to 0.001 in. No machining allowance added.";
+      ? "Oriented bounding box, rounded up to 0.01 mm. No machining allowance added."
+      : "Oriented bounding box, rounded up to 0.001 in. No machining allowance added.";
     detectedMaterialEl.textContent = payload.detected_material
       ? `Material: ${payload.detected_material}`
       : "Material type cannot be detected from this file.";
