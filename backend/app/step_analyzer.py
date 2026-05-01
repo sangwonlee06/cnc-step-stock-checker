@@ -56,14 +56,18 @@ def analyze_step_file(path: str | Path) -> dict:
 
     rod = detect_cylindrical_stock(shape, occ)
     if rod is not None:
-        length = _axis_aligned_length(shape, rod.axis, occ) * MM_TO_INCH
-        diameter = _axis_aligned_radial_diameter(shape, rod.axis, occ, rod.max_radius) * MM_TO_INCH
+        length_mm = _axis_aligned_length(shape, rod.axis, occ)
+        diameter_mm = _axis_aligned_radial_diameter(shape, rod.axis, occ, rod.max_radius)
+        length = length_mm * MM_TO_INCH
+        diameter = diameter_mm * MM_TO_INCH
         formatted = format_rod(diameter, length)
         return {
             "classification": "cylindrical",
             "format": formatted,
             "diameter_in": ceil_thousandth(diameter),
             "length_in": ceil_thousandth(length),
+            "diameter_mm": diameter_mm,
+            "length_mm": length_mm,
             "details": {
                 "cylindrical_faces": rod.cylindrical_face_count,
                 "rotational_faces": rod.rotational_face_count,
@@ -72,7 +76,8 @@ def analyze_step_file(path: str | Path) -> dict:
         }
 
     dims = axis_aligned_bounding_dimensions(shape, occ)
-    length, width, height = (v * MM_TO_INCH for v in dims.sorted_stock())
+    length_mm, width_mm, height_mm = dims.sorted_stock()
+    length, width, height = length_mm * MM_TO_INCH, width_mm * MM_TO_INCH, height_mm * MM_TO_INCH
     formatted = format_prismatic(length, width, height)
     return {
         "classification": "prismatic",
@@ -80,6 +85,9 @@ def analyze_step_file(path: str | Path) -> dict:
         "length_in": ceil_thousandth(length),
         "width_in": ceil_thousandth(width),
         "height_in": ceil_thousandth(height),
+        "length_mm": length_mm,
+        "width_mm": width_mm,
+        "height_mm": height_mm,
         "details": {
             "bounding": "OpenCASCADE precise axis-aligned bounding box; no machining allowance added.",
             "axis_aligned_in": tuple(ceil_thousandth(v * MM_TO_INCH) for v in dims.as_tuple()),

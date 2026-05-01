@@ -19,13 +19,13 @@ function ceilTo(value, decimals) {
 function formatResult(payload) {
   if (currentUnit === "mm") {
     if (payload.classification === "cylindrical") {
-      const dia = ceilTo(payload.diameter_in * 25.4, 2).toFixed(2);
-      const len = ceilTo(payload.length_in * 25.4, 2).toFixed(2);
+      const dia = ceilTo(payload.diameter_mm, 2).toFixed(2);
+      const len = ceilTo(payload.length_mm, 2).toFixed(2);
       return `DIA ${dia} X ${len}`;
     }
-    const l = ceilTo(payload.length_in * 25.4, 2).toFixed(2);
-    const w = ceilTo(payload.width_in * 25.4, 2).toFixed(2);
-    const h = ceilTo(payload.height_in * 25.4, 2).toFixed(2);
+    const l = ceilTo(payload.length_mm, 2).toFixed(2);
+    const w = ceilTo(payload.width_mm, 2).toFixed(2);
+    const h = ceilTo(payload.height_mm, 2).toFixed(2);
     return `${l} X ${w} X ${h}`;
   }
   return payload.format;
