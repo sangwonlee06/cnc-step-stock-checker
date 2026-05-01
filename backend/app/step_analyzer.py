@@ -154,7 +154,7 @@ def analyze_step_file(path: str | Path) -> dict:
             },
         }
 
-    dims = axis_aligned_bounding_dimensions(shape, occ)
+    dims = oriented_bounding_dimensions(shape, occ)
     length_mm, width_mm, height_mm = dims.sorted_stock()
     length, width, height = length_mm * MM_TO_INCH, width_mm * MM_TO_INCH, height_mm * MM_TO_INCH
     formatted = format_prismatic(length, width, height)
@@ -169,8 +169,8 @@ def analyze_step_file(path: str | Path) -> dict:
         "height_mm": height_mm,
         "detected_material": detected_material,
         "details": {
-            "bounding": "OpenCASCADE precise axis-aligned bounding box; no machining allowance added.",
-            "axis_aligned_in": tuple(ceil_thousandth(v * MM_TO_INCH) for v in dims.as_tuple()),
+            "bounding": "OpenCASCADE oriented bounding box; no machining allowance added.",
+            "oriented_in": tuple(ceil_thousandth(v * MM_TO_INCH) for v in dims.as_tuple()),
         },
     }
 
