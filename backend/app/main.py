@@ -109,6 +109,7 @@ def _apply_security_headers(response: Response) -> None:
     )
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
+
 app = FastAPI(title="CNC STEP Stock Checker")
 
 logger.info(
@@ -170,6 +171,14 @@ async def security_middleware(request: Request, call_next) -> Response:
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(FRONTEND_DIR / "index.html")
+
+
+@app.get("/googleb639f0cad68181c7.html")
+def google_site_verification() -> FileResponse:
+    return FileResponse(
+        FRONTEND_DIR / "googleb639f0cad68181c7.html",
+        media_type="text/html",
+    )
 
 
 @app.get("/favicon.ico")
