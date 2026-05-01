@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING
 from pathlib import Path
 from typing import Any, Iterable
+
+logger = logging.getLogger("step_stock.analyzer")
 
 
 class CADKernelUnavailable(RuntimeError):
@@ -65,7 +68,10 @@ def _extract_step_material(path: str | Path) -> str | None:
         snippets.append(m.group(1))
 
     if not snippets:
+        logger.debug("No material metadata snippets found")
         return None
+
+    logger.debug("Found %d material metadata snippets", len(snippets))
 
     # Ordered most-specific first; first match wins.
     patterns: list[tuple[re.Pattern[str], str]] = [
@@ -134,6 +140,8 @@ def analyze_step_file(path: str | Path) -> dict:
 
     rod = detect_cylindrical_stock(shape, occ)
     if rod is not None:
+        logger.debug("Classified as cylindrical: %d cyl faces, %d rotational faces",
+                      rod.cylindrical_face_count, rod.rotational_face_count)
         length_mm = _axis_aligned_length(shape, rod.axis, occ)
         diameter_mm = _axis_aligned_radial_diameter(shape, rod.axis, occ, rod.max_radius)
         length = length_mm * MM_TO_INCH
@@ -154,6 +162,7 @@ def analyze_step_file(path: str | Path) -> dict:
             },
         }
 
+    logger.debug("Classified as prismatic")
     dims = axis_aligned_bounding_dimensions(shape, occ)
     length_mm, width_mm, height_mm = dims.sorted_stock()
     length, width, height = length_mm * MM_TO_INCH, width_mm * MM_TO_INCH, height_mm * MM_TO_INCH
@@ -188,15 +197,20 @@ def parse_step_file(path: str | Path, occ: Any | None = None) -> Any:
     reader = occ.STEPControl_Reader()
     status = reader.ReadFile(step_path)
     if status != occ.IFSelect_RetDone:
+        logger.warning("STEP read failed: status=%s", status)
         raise StepAnalysisError("OpenCASCADE could not read this STEP file.")
 
     ok = reader.TransferRoots()
     if ok == 0:
+        logger.warning("No transferable geometry in STEP file")
         raise StepAnalysisError("The STEP file did not contain transferable solid geometry.")
 
     shape = reader.OneShape()
     if shape.IsNull():
+        logger.warning("STEP file produced an empty shape")
         raise StepAnalysisError("The STEP file produced an empty shape.")
+
+    logger.debug("STEP file parsed successfully")
 
     return shape
 
@@ -220,6 +234,7 @@ def oriented_bounding_dimensions(shape: Any, occ: Any | None = None) -> Bounding
             2.0 * _obb_half_size(obb, "Z"),
         )
     except Exception:
+        logger.warning("OBB computation failed, falling back to axis-aligned bounding box")
         return axis_aligned_bounding_dimensions(shape, occ)
 
 

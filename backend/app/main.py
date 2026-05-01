@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 import tempfile
 import time
 from collections import defaultdict, deque
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -13,6 +16,29 @@ from fastapi.staticfiles import StaticFiles
 
 from .step_analyzer import CADKernelUnavailable, StepAnalysisError, analyze_step_file
 
+
+class _JSONFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {
+            "time": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[1]:
+            entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(entry, default=str)
+
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(_JSONFormatter())
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    handlers=[_handler],
+    force=True,
+)
+
+logger = logging.getLogger("step_stock")
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIR = ROOT / "frontend"
@@ -85,6 +111,13 @@ def _apply_security_headers(response: Response) -> None:
 
 app = FastAPI(title="CNC STEP Stock Checker")
 
+logger.info(
+    "Server configured: max_upload=%d MB, rate_limit=%d req / %d s",
+    MAX_UPLOAD_BYTES // (1024 * 1024),
+    RATE_LIMIT_REQUESTS,
+    RATE_LIMIT_WINDOW_SECONDS,
+)
+
 allowed_origins = _split_csv_env("ALLOWED_ORIGINS")
 if allowed_origins:
     app.add_middleware(
@@ -101,7 +134,10 @@ async def security_middleware(request: Request, call_next) -> Response:
     if request.url.path == "/api/analyze":
         content_length = request.headers.get("content-length")
         request_size = int(content_length) if content_length and content_length.isdigit() else 0
+        ip_address = _client_ip(request)
+
         if request_size > MAX_UPLOAD_BYTES:
+            logger.warning("Upload rejected: size=%d bytes, ip=%s", request_size, ip_address)
             response = JSONResponse(
                 status_code=413,
                 content={
@@ -114,8 +150,8 @@ async def security_middleware(request: Request, call_next) -> Response:
             _apply_security_headers(response)
             return response
 
-        ip_address = _client_ip(request)
         if _rate_limited(ip_address):
+            logger.warning("Rate limit exceeded: ip=%s", ip_address)
             response = JSONResponse(
                 status_code=429,
                 content={"detail": "Too many analysis requests. Please wait and try again."},
@@ -123,6 +159,8 @@ async def security_middleware(request: Request, call_next) -> Response:
             response.headers["Retry-After"] = str(RATE_LIMIT_WINDOW_SECONDS)
             _apply_security_headers(response)
             return response
+
+        logger.info("Analyze request: ip=%s, content_length=%d", ip_address, request_size)
 
     response = await call_next(request)
     _apply_security_headers(response)
@@ -146,6 +184,7 @@ app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 async def analyze(file: UploadFile = File(...)) -> dict:
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".stp", ".step"}:
+        logger.warning("Invalid extension: %s", suffix)
         raise HTTPException(status_code=400, detail="Upload a .stp or .step file.")
 
     bytes_written = 0
@@ -164,11 +203,24 @@ async def analyze(file: UploadFile = File(...)) -> dict:
                 )
             tmp.write(chunk)
 
+    logger.info("Analyzing: filename=%s, size=%d bytes", file.filename, bytes_written)
+    t0 = time.monotonic()
     try:
-        return analyze_step_file(tmp_path)
+        result = analyze_step_file(tmp_path)
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "Analysis complete: filename=%s, classification=%s, material=%s, duration=%.3f s",
+            file.filename,
+            result.get("classification"),
+            result.get("detected_material"),
+            elapsed,
+        )
+        return result
     except CADKernelUnavailable as exc:
+        logger.error("CAD kernel unavailable: %s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except StepAnalysisError as exc:
+        logger.warning("Analysis failed: filename=%s, error=%s", file.filename, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
         await file.close()
