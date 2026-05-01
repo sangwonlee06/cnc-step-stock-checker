@@ -66,8 +66,8 @@ async function analyzeFile(file) {
     return;
   }
 
-  if (file.size >= 1024 * 1024) {
-    setStatus("File must be smaller than 1 MB.", "error");
+  if (file.size >= 10 * 1024 * 1024) {
+    setStatus("File must be smaller than 10 MB.", "error");
     return;
   }
 
