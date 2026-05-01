@@ -64,7 +64,8 @@ def _extract_step_material(path: str | Path) -> str | None:
     for m in re.finditer(r"FILE_(?:DESCRIPTION|NAME)\s*\(([^)]*)\)", text):
         snippets.append(m.group(1))
 
-    targets = snippets + [text] if snippets else [text]
+    if not snippets:
+        return None
 
     # Ordered most-specific first; first match wins.
     patterns: list[tuple[re.Pattern[str], str]] = [
@@ -84,6 +85,8 @@ def _extract_step_material(path: str | Path) -> str | None:
         (re.compile(r"\b(?:ss|stainless[\s\-_]*(?:steel)?)[\s\-_]*304\b", re.I), "Stainless Steel 304"),
         (re.compile(r"\b(?:ss|stainless[\s\-_]*(?:steel)?)[\s\-_]*410\b", re.I), "Stainless Steel 410"),
         (re.compile(r"\b(?:ss|stainless[\s\-_]*(?:steel)?)[\s\-_]*303\b", re.I), "Stainless Steel 303"),
+        (re.compile(r"\b18[\s\-_]*8\b", re.I), "Stainless Steel 304"),
+        (re.compile(r"\bstainless\b", re.I), "Stainless Steel 304"),
         (re.compile(r"\bbronze[\s\-_]*932\b|932[\s\-_]*bronze\b", re.I), "Bronze 932"),
         (re.compile(r"\bbronze\b", re.I), "Bronze 932"),
         (re.compile(r"\bbrass[\s\-_]*360\b|360[\s\-_]*brass\b", re.I), "Brass 360"),
@@ -110,12 +113,11 @@ def _extract_step_material(path: str | Path) -> str | None:
         (re.compile(r"\babs\b|acrylonitrile[\s\-_]*butadiene[\s\-_]*styrene", re.I), "ABS"),
         (re.compile(r"\bal(?:uminu?m)\b", re.I), "Aluminum 6061"),
         (re.compile(r"\bsteel\b", re.I), "Steel 1018"),
-        (re.compile(r"\bstainless\b", re.I), "Stainless Steel 304"),
     ]
 
-    for target in targets:
+    for snippet in snippets:
         for pat, name in patterns:
-            if pat.search(target):
+            if pat.search(snippet):
                 return name
     return None
 

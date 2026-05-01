@@ -241,6 +241,13 @@ h1 {
   color: var(--accent);
 }
 
+.material-beta-notice {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  font-style: italic;
+}
+
 @media (max-width: 780px) {
   .shell {
     padding: 18px;

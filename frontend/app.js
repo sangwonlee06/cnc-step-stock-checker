@@ -6,6 +6,7 @@ const metaEl = document.querySelector("#meta");
 const unitToggle = document.querySelector("#unit-toggle");
 const resultUnitEl = document.querySelector("#result-unit");
 const detectedMaterialEl = document.querySelector("#detected-material");
+const materialBetaNoticeEl = document.querySelector(".material-beta-notice");
 
 const allowedExtensions = [".stp", ".step"];
 
@@ -96,11 +97,13 @@ async function analyzeFile(file) {
       : "Rounded up to 0.001 in. No machining allowance added.";
     detectedMaterialEl.textContent = payload.detected_material
       ? `Material: ${payload.detected_material}`
-      : "";
+      : "Material type cannot be detected from this file.";
+    materialBetaNoticeEl.hidden = !payload.detected_material;
   } catch (error) {
     resultEl.textContent = "-.--- X -.--- X -.---";
     metaEl.textContent = "No result.";
     detectedMaterialEl.textContent = "";
+    materialBetaNoticeEl.hidden = true;
     setStatus(error.message, "error");
   }
 }
