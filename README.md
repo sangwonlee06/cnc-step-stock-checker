@@ -1,3 +1,5 @@
+https://stepstockcalculator.com/
+
 # CNC STEP Stock Checker Desktop
 
 A desktop STEP analysis app that accepts `.stp` / `.step` files and returns CNC
