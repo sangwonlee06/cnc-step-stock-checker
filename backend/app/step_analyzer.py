@@ -30,6 +30,9 @@ class CylinderCandidate:
     max_radius: float
     cylindrical_face_count: int
     rotational_face_count: int
+    min_radius: float | None = None
+    rotational_area_ratio: float = 1.0
+    detection_rule: str = "strict"
 
 
 MM_TO_INCH = 1.0 / 25.4
@@ -139,17 +142,19 @@ def analyze_step_file(path: str | Path) -> dict:
     detected_material = _extract_step_material(path)
 
     rod = detect_cylindrical_stock(shape, occ)
+    if rod is None:
+        rod = detect_cylindrical_stock_relaxed(shape, occ)
+
     if rod is not None:
-        logger.debug("Classified as cylindrical: %d cyl faces, %d rotational faces",
-                      rod.cylindrical_face_count, rod.rotational_face_count)
+        logger.debug("Classified as cylindrical (%s): %d cyl faces, %d rotational faces",
+                      rod.detection_rule, rod.cylindrical_face_count, rod.rotational_face_count)
         length_mm = _axis_aligned_length(shape, rod.axis, occ)
         diameter_mm = _axis_aligned_radial_diameter(shape, rod.axis, occ, rod.max_radius)
         length = length_mm * MM_TO_INCH
         diameter = diameter_mm * MM_TO_INCH
-        formatted = format_rod(diameter, length)
-        return {
+
+        result: dict = {
             "classification": "cylindrical",
-            "format": formatted,
             "diameter_in": ceil_thousandth(diameter),
             "length_in": ceil_thousandth(length),
             "diameter_mm": diameter_mm,
@@ -158,9 +163,34 @@ def analyze_step_file(path: str | Path) -> dict:
             "details": {
                 "cylindrical_faces": rod.cylindrical_face_count,
                 "rotational_faces": rod.rotational_face_count,
-                "rule": "All curved analytic faces share a central axis; planes are perpendicular end faces.",
+                "detection_rule": rod.detection_rule,
+                "rotational_area_ratio": rod.rotational_area_ratio,
             },
         }
+
+        if rod.min_radius is not None:
+            inner_diameter_mm = rod.min_radius * 2.0
+            inner_diameter = inner_diameter_mm * MM_TO_INCH
+            result["inner_diameter_in"] = ceil_thousandth(inner_diameter)
+            result["inner_diameter_mm"] = inner_diameter_mm
+            result["format"] = format_pipe(diameter, inner_diameter, length)
+            result["details"]["rule"] = (
+                "Pipe/tube detected: cylindrical faces at two distinct radii on shared axis."
+            )
+        else:
+            result["format"] = format_rod(diameter, length)
+            if rod.detection_rule == "strict":
+                result["details"]["rule"] = (
+                    "All curved analytic faces share a central axis; "
+                    "planes are perpendicular end faces."
+                )
+            else:
+                result["details"]["rule"] = (
+                    f"Relaxed detection: {rod.rotational_area_ratio:.0%} of surface area "
+                    "is rotational about a shared axis."
+                )
+
+        return result
 
     logger.debug("Classified as prismatic")
     dims = minimum_bounding_dimensions(shape, occ)
@@ -361,12 +391,165 @@ def detect_cylindrical_stock(shape: Any, occ: Any | None = None, tolerance: floa
     )
 
 
+def detect_cylindrical_stock_relaxed(
+    shape: Any,
+    occ: Any | None = None,
+    tolerance: float = 1e-5,
+    min_area_ratio: float = 0.70,
+) -> CylinderCandidate | None:
+    """Classify turned parts using a surface-area heuristic.
+
+    Unlike :func:`detect_cylindrical_stock`, this allows non-axial features
+    (flats, cross-holes, keyways, B-spline chamfers) as long as the majority
+    of the surface area is rotational about a shared axis.  It also detects
+    inner diameters for pipe/tube-shaped parts via radius clustering.
+    """
+
+    occ = occ or _load_occ()
+    faces = list(_iter_faces(shape, occ))
+    if not faces:
+        return None
+
+    # --- Pass 1: find the dominant rotational axis --------------------------
+    # Collect all rotational face axes; the axis that merges the most faces wins.
+    candidate_axis: Axis | None = None
+    rotational_area = 0.0
+    total_area = 0.0
+    cyl_count = 0
+    rotational_count = 0
+    max_radius = 0.0
+    cylinder_radii: list[float] = []
+
+    rotational_types: set = set()
+    for attr in ("GeomAbs_Cylinder", "GeomAbs_Cone", "GeomAbs_Torus", "GeomAbs_Sphere"):
+        val = getattr(occ, attr, None)
+        if val is not None:
+            rotational_types.add(val)
+
+    for face in faces:
+        area = _face_surface_area(face, occ)
+        total_area += area
+
+        surf = occ.BRepAdaptor_Surface(face, True)
+        surface_type = surf.GetType()
+
+        if surface_type == occ.GeomAbs_Cylinder:
+            cyl = surf.Cylinder()
+            axis = _axis_from_gp_axis(cyl.Axis())
+            merged = _merge_axis(candidate_axis, axis, tolerance)
+            if merged is None:
+                # This cylindrical face doesn't align — skip it for the axis,
+                # but don't reject the whole part (unlike strict detection).
+                continue
+            candidate_axis = merged
+            radius = float(cyl.Radius())
+            max_radius = max(max_radius, radius)
+            cylinder_radii.append(radius)
+            cyl_count += 1
+            rotational_count += 1
+            rotational_area += area
+            continue
+
+        if surface_type == occ.GeomAbs_Cone:
+            cone = surf.Cone()
+            merged = _merge_axis(candidate_axis, _axis_from_gp_axis(cone.Axis()), tolerance)
+            if merged is None:
+                continue
+            candidate_axis = merged
+            max_radius = max(max_radius, abs(float(cone.RefRadius())))
+            rotational_count += 1
+            rotational_area += area
+            continue
+
+        if surface_type == occ.GeomAbs_Torus:
+            torus = surf.Torus()
+            merged = _merge_axis(candidate_axis, _axis_from_gp_axis(torus.Axis()), tolerance)
+            if merged is None:
+                continue
+            candidate_axis = merged
+            max_radius = max(max_radius, abs(float(torus.MajorRadius())) + abs(float(torus.MinorRadius())))
+            rotational_count += 1
+            rotational_area += area
+            continue
+
+        if surface_type == occ.GeomAbs_Sphere:
+            sphere = surf.Sphere()
+            if candidate_axis is not None and _point_line_distance(sphere.Location(), candidate_axis) > tolerance:
+                continue
+            max_radius = max(max_radius, abs(float(sphere.Radius())))
+            rotational_count += 1
+            rotational_area += area
+            continue
+
+        # Planes and any other surface types (B-spline, etc.) just contribute
+        # to total_area but not rotational_area.
+
+    if candidate_axis is None or cyl_count == 0:
+        return None
+
+    if total_area <= 0:
+        return None
+
+    ratio = rotational_area / total_area
+    if ratio < min_area_ratio:
+        logger.debug("Relaxed detection rejected: rotational area ratio %.1f%% < %.0f%%",
+                      ratio * 100, min_area_ratio * 100)
+        return None
+
+    length = _axis_aligned_length(shape, candidate_axis, occ)
+    if length <= tolerance or max_radius <= tolerance:
+        return None
+
+    radial_diameter = _axis_aligned_radial_diameter(shape, candidate_axis, occ, max_radius)
+    if radial_diameter <= tolerance:
+        return None
+
+    # --- ID detection via radius clustering ---------------------------------
+    min_radius: float | None = None
+    if cylinder_radii:
+        clusters: list[list[float]] = []
+        for r in sorted(cylinder_radii):
+            if clusters and abs(r - clusters[-1][0]) <= tolerance:
+                clusters[-1].append(r)
+            else:
+                clusters.append([r])
+
+        if len(clusters) == 2:
+            small_r = clusters[0][0]
+            large_r = clusters[-1][0]
+            # Validate: ID must be 10-95% of OD to avoid chamfer fillets
+            # and near-identical surface splits.
+            if large_r > 0 and 0.10 <= small_r / large_r <= 0.95:
+                min_radius = small_r
+
+    logger.debug("Relaxed detection accepted: ratio=%.1f%%, cyl_faces=%d, id=%s",
+                  ratio * 100, cyl_count, min_radius)
+
+    return CylinderCandidate(
+        axis=candidate_axis,
+        max_radius=radial_diameter / 2.0,
+        cylindrical_face_count=cyl_count,
+        rotational_face_count=rotational_count,
+        min_radius=min_radius,
+        rotational_area_ratio=round(ratio, 3),
+        detection_rule="relaxed",
+    )
+
+
 def format_prismatic(length: float, width: float, height: float) -> str:
     return f"{ceil_thousandth(length):.3f} X {ceil_thousandth(width):.3f} X {ceil_thousandth(height):.3f}"
 
 
 def format_rod(diameter: float, length: float) -> str:
     return f"DIA {ceil_thousandth(diameter):.3f} X {ceil_thousandth(length):.3f}"
+
+
+def format_pipe(outer_diameter: float, inner_diameter: float, length: float) -> str:
+    return (
+        f"OD {ceil_thousandth(outer_diameter):.3f} "
+        f"X ID {ceil_thousandth(inner_diameter):.3f} "
+        f"X {ceil_thousandth(length):.3f}"
+    )
 
 
 def ceil_thousandth(value: float) -> float:
@@ -389,6 +572,15 @@ def _axis_aligned_radial_diameter(shape: Any, axis: Axis, occ: Any, classified_r
     if distances:
         return max(2.0 * max(distances), 2.0 * classified_radius)
     return 2.0 * classified_radius
+
+
+def _face_surface_area(face: Any, occ: Any) -> float:
+    """Compute the surface area of a single B-Rep face in model units (mm^2)."""
+    if occ.BRepGProp is None or occ.GProp_GProps is None:
+        return 0.0
+    props = occ.GProp_GProps()
+    _call_any(occ.BRepGProp, ("SurfaceProperties_s", "SurfaceProperties"), face, props)
+    return float(props.Mass())
 
 
 def _iter_faces(shape: Any, occ: Any) -> Iterable[Any]:
@@ -497,6 +689,7 @@ def _load_occ() -> Any:
         from OCP.BRep import BRep_Tool
         from OCP.BRepAdaptor import BRepAdaptor_Surface
         from OCP.BRepBndLib import BRepBndLib
+        from OCP.BRepGProp import BRepGProp
         from OCP.GeomAbs import (
             GeomAbs_Cone,
             GeomAbs_Cylinder,
@@ -504,6 +697,7 @@ def _load_occ() -> Any:
             GeomAbs_Sphere,
             GeomAbs_Torus,
         )
+        from OCP.GProp import GProp_GProps
         from OCP.IFSelect import IFSelect_RetDone
         from OCP.Interface import Interface_Static
         from OCP.STEPControl import STEPControl_Reader
@@ -518,6 +712,7 @@ def _load_occ() -> Any:
             from OCC.Core.BRep import BRep_Tool
             from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
             from OCC.Core.BRepBndLib import brepbndlib_AddOBB, brepbndlib_AddOptimal
+            from OCC.Core.BRepGProp import brepgprop_SurfaceProperties
             from OCC.Core.GeomAbs import (
                 GeomAbs_Cone,
                 GeomAbs_Cylinder,
@@ -525,6 +720,7 @@ def _load_occ() -> Any:
                 GeomAbs_Sphere,
                 GeomAbs_Torus,
             )
+            from OCC.Core.GProp import GProp_GProps
             from OCC.Core.IFSelect import IFSelect_RetDone
             from OCC.Core.Interface import Interface_Static
             from OCC.Core.STEPControl import STEPControl_Reader
@@ -536,8 +732,12 @@ def _load_occ() -> Any:
                 AddOBB = staticmethod(brepbndlib_AddOBB)
                 AddOptimal = staticmethod(brepbndlib_AddOptimal)
 
+            class BRepGPropCompat:
+                SurfaceProperties = staticmethod(brepgprop_SurfaceProperties)
+
             values = locals()
             values["BRepBndLib"] = BRepBndLibCompat
+            values["BRepGProp"] = BRepGPropCompat
             values["TopoDS"] = None
             return _OccNamespace(values, topods=topods)
         except Exception as occ_error:
@@ -554,6 +754,8 @@ class _OccNamespace:
         self.BRep_Tool = values["BRep_Tool"]
         self.BRepAdaptor_Surface = values["BRepAdaptor_Surface"]
         self.BRepBndLib = values["BRepBndLib"]
+        self.BRepGProp = values.get("BRepGProp")
+        self.GProp_GProps = values.get("GProp_GProps")
         self.GeomAbs_Cone = values["GeomAbs_Cone"]
         self.GeomAbs_Cylinder = values["GeomAbs_Cylinder"]
         self.GeomAbs_Plane = values["GeomAbs_Plane"]
