@@ -23,6 +23,10 @@ function formatResult(payload) {
     if (payload.classification === "cylindrical") {
       const dia = ceilTo(payload.diameter_mm, 2).toFixed(2);
       const len = ceilTo(payload.length_mm, 2).toFixed(2);
+      if (payload.inner_diameter_mm) {
+        const id = ceilTo(payload.inner_diameter_mm, 2).toFixed(2);
+        return `OD ${dia} X ID ${id} X ${len}`;
+      }
       return `DIA ${dia} X ${len}`;
     }
     const l = ceilTo(payload.length_mm, 2).toFixed(2);
