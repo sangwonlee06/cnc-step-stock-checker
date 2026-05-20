@@ -35,6 +35,23 @@ class CylinderCandidate:
     detection_rule: str = "strict"
 
 
+@dataclass(frozen=True)
+class CylinderFaceSample:
+    face: Any
+    axis: Axis
+    radius: float
+    area: float = 0.0
+
+
+@dataclass(frozen=True)
+class RotationalFaceSample:
+    face: Any
+    axis: Axis
+    area: float
+    max_radius: float
+    cylinder_radius: float | None = None
+
+
 MM_TO_INCH = 1.0 / 25.4
 
 
@@ -308,6 +325,7 @@ def detect_cylindrical_stock(shape: Any, occ: Any | None = None, tolerance: floa
     cyl_count = 0
     rotational_count = 0
     saw_plane = False
+    cylinder_samples: list[CylinderFaceSample] = []
 
     for face in faces:
         surf = occ.BRepAdaptor_Surface(face, True)
@@ -319,7 +337,9 @@ def detect_cylindrical_stock(shape: Any, occ: Any | None = None, tolerance: floa
             candidate_axis = _merge_axis(candidate_axis, axis, tolerance)
             if candidate_axis is None:
                 return None
-            max_radius = max(max_radius, float(cyl.Radius()))
+            radius = float(cyl.Radius())
+            max_radius = max(max_radius, radius)
+            cylinder_samples.append(CylinderFaceSample(face=face, axis=axis, radius=radius))
             cyl_count += 1
             rotational_count += 1
             continue
@@ -382,12 +402,21 @@ def detect_cylindrical_stock(shape: Any, occ: Any | None = None, tolerance: floa
     radial_diameter = _axis_aligned_radial_diameter(shape, candidate_axis, occ, max_radius)
     if radial_diameter <= tolerance:
         return None
+    inner_radius = _detect_inner_radius_from_cylinders(
+        cylinder_samples,
+        candidate_axis,
+        radial_diameter / 2.0,
+        length,
+        occ,
+        tolerance,
+    )
 
     return CylinderCandidate(
         axis=candidate_axis,
         max_radius=radial_diameter / 2.0,
         cylindrical_face_count=cyl_count,
         rotational_face_count=rotational_count,
+        min_radius=inner_radius,
     )
 
 
@@ -410,21 +439,9 @@ def detect_cylindrical_stock_relaxed(
     if not faces:
         return None
 
-    # --- Pass 1: find the dominant rotational axis --------------------------
-    # Collect all rotational face axes; the axis that merges the most faces wins.
-    candidate_axis: Axis | None = None
-    rotational_area = 0.0
     total_area = 0.0
-    cyl_count = 0
-    rotational_count = 0
-    max_radius = 0.0
-    cylinder_radii: list[float] = []
-
-    rotational_types: set = set()
-    for attr in ("GeomAbs_Cylinder", "GeomAbs_Cone", "GeomAbs_Torus", "GeomAbs_Sphere"):
-        val = getattr(occ, attr, None)
-        if val is not None:
-            rotational_types.add(val)
+    rotational_samples: list[RotationalFaceSample] = []
+    sphere_samples: list[tuple[Any, float, float]] = []
 
     for face in faces:
         area = _face_surface_area(face, occ)
@@ -436,59 +453,90 @@ def detect_cylindrical_stock_relaxed(
         if surface_type == occ.GeomAbs_Cylinder:
             cyl = surf.Cylinder()
             axis = _axis_from_gp_axis(cyl.Axis())
-            merged = _merge_axis(candidate_axis, axis, tolerance)
-            if merged is None:
-                # This cylindrical face doesn't align — skip it for the axis,
-                # but don't reject the whole part (unlike strict detection).
-                continue
-            candidate_axis = merged
             radius = float(cyl.Radius())
-            max_radius = max(max_radius, radius)
-            cylinder_radii.append(radius)
-            cyl_count += 1
-            rotational_count += 1
-            rotational_area += area
+            rotational_samples.append(
+                RotationalFaceSample(
+                    face=face,
+                    axis=axis,
+                    area=area,
+                    max_radius=radius,
+                    cylinder_radius=radius,
+                )
+            )
             continue
 
         if surface_type == occ.GeomAbs_Cone:
             cone = surf.Cone()
-            merged = _merge_axis(candidate_axis, _axis_from_gp_axis(cone.Axis()), tolerance)
-            if merged is None:
-                continue
-            candidate_axis = merged
-            max_radius = max(max_radius, abs(float(cone.RefRadius())))
-            rotational_count += 1
-            rotational_area += area
+            rotational_samples.append(
+                RotationalFaceSample(
+                    face=face,
+                    axis=_axis_from_gp_axis(cone.Axis()),
+                    area=area,
+                    max_radius=abs(float(cone.RefRadius())),
+                )
+            )
             continue
 
         if surface_type == occ.GeomAbs_Torus:
             torus = surf.Torus()
-            merged = _merge_axis(candidate_axis, _axis_from_gp_axis(torus.Axis()), tolerance)
-            if merged is None:
-                continue
-            candidate_axis = merged
-            max_radius = max(max_radius, abs(float(torus.MajorRadius())) + abs(float(torus.MinorRadius())))
-            rotational_count += 1
-            rotational_area += area
+            rotational_samples.append(
+                RotationalFaceSample(
+                    face=face,
+                    axis=_axis_from_gp_axis(torus.Axis()),
+                    area=area,
+                    max_radius=abs(float(torus.MajorRadius())) + abs(float(torus.MinorRadius())),
+                )
+            )
             continue
 
         if surface_type == occ.GeomAbs_Sphere:
             sphere = surf.Sphere()
-            if candidate_axis is not None and _point_line_distance(sphere.Location(), candidate_axis) > tolerance:
-                continue
-            max_radius = max(max_radius, abs(float(sphere.Radius())))
-            rotational_count += 1
-            rotational_area += area
+            sphere_samples.append((sphere.Location(), abs(float(sphere.Radius())), area))
             continue
 
         # Planes and any other surface types (B-spline, etc.) just contribute
         # to total_area but not rotational_area.
 
-    if candidate_axis is None or cyl_count == 0:
-        return None
-
     if total_area <= 0:
         return None
+
+    candidate_axis = _dominant_rotational_axis(rotational_samples, tolerance)
+    if candidate_axis is None:
+        return None
+
+    matching_samples = [
+        sample
+        for sample in rotational_samples
+        if _merge_axis(candidate_axis, sample.axis, tolerance) is not None
+    ]
+    cylinder_samples = [
+        CylinderFaceSample(
+            face=sample.face,
+            axis=sample.axis,
+            radius=sample.cylinder_radius,
+            area=sample.area,
+        )
+        for sample in matching_samples
+        if sample.cylinder_radius is not None
+    ]
+    if not cylinder_samples:
+        return None
+
+    outer_cylinder_count = sum(
+        1 for sample in cylinder_samples if not _face_is_reversed(sample.face, occ)
+    )
+    if outer_cylinder_count == 0:
+        logger.debug("Relaxed detection rejected: no outward cylindrical face on dominant axis")
+        return None
+
+    rotational_area = sum(sample.area for sample in matching_samples)
+    rotational_count = len(matching_samples)
+    max_radius = max(sample.max_radius for sample in matching_samples)
+    for location, radius, area in sphere_samples:
+        if _point_line_distance(location, candidate_axis) <= tolerance:
+            rotational_area += area
+            rotational_count += 1
+            max_radius = max(max_radius, radius)
 
     ratio = rotational_area / total_area
     if ratio < min_area_ratio:
@@ -504,31 +552,22 @@ def detect_cylindrical_stock_relaxed(
     if radial_diameter <= tolerance:
         return None
 
-    # --- ID detection via radius clustering ---------------------------------
-    min_radius: float | None = None
-    if cylinder_radii:
-        clusters: list[list[float]] = []
-        for r in sorted(cylinder_radii):
-            if clusters and abs(r - clusters[-1][0]) <= tolerance:
-                clusters[-1].append(r)
-            else:
-                clusters.append([r])
-
-        if len(clusters) == 2:
-            small_r = clusters[0][0]
-            large_r = clusters[-1][0]
-            # Validate: ID must be 10-95% of OD to avoid chamfer fillets
-            # and near-identical surface splits.
-            if large_r > 0 and 0.10 <= small_r / large_r <= 0.95:
-                min_radius = small_r
+    min_radius = _detect_inner_radius_from_cylinders(
+        cylinder_samples,
+        candidate_axis,
+        radial_diameter / 2.0,
+        length,
+        occ,
+        tolerance,
+    )
 
     logger.debug("Relaxed detection accepted: ratio=%.1f%%, cyl_faces=%d, id=%s",
-                  ratio * 100, cyl_count, min_radius)
+                  ratio * 100, len(cylinder_samples), min_radius)
 
     return CylinderCandidate(
         axis=candidate_axis,
         max_radius=radial_diameter / 2.0,
-        cylindrical_face_count=cyl_count,
+        cylindrical_face_count=len(cylinder_samples),
         rotational_face_count=rotational_count,
         min_radius=min_radius,
         rotational_area_ratio=round(ratio, 3),
@@ -581,6 +620,101 @@ def _face_surface_area(face: Any, occ: Any) -> float:
     props = occ.GProp_GProps()
     _call_any(occ.BRepGProp, ("SurfaceProperties_s", "SurfaceProperties"), face, props)
     return float(props.Mass())
+
+
+def _dominant_rotational_axis(samples: list[RotationalFaceSample], tolerance: float) -> Axis | None:
+    """Choose the same-line rotational axis with the most supporting surface area."""
+    best_axis: Axis | None = None
+    best_area = 0.0
+    best_count = 0
+
+    for seed in samples:
+        area = 0.0
+        count = 0
+        for sample in samples:
+            if _merge_axis(seed.axis, sample.axis, tolerance) is not None:
+                area += sample.area
+                count += 1
+        if area > best_area or (area == best_area and count > best_count):
+            best_axis = seed.axis
+            best_area = area
+            best_count = count
+
+    return best_axis
+
+
+def _detect_inner_radius_from_cylinders(
+    cylinder_samples: list[CylinderFaceSample],
+    axis: Axis,
+    outer_radius: float,
+    length: float,
+    occ: Any,
+    tolerance: float,
+) -> float | None:
+    """Return a bore radius only when an internal cylindrical face supports it."""
+    if outer_radius <= tolerance or length <= tolerance:
+        return None
+
+    inner_radii: list[float] = []
+    min_full_span = max(length * 0.80, tolerance)
+    for sample in cylinder_samples:
+        if sample.radius <= tolerance or sample.radius >= outer_radius - tolerance:
+            continue
+        if not 0.10 <= sample.radius / outer_radius <= 0.95:
+            continue
+        if not _face_is_reversed(sample.face, occ):
+            continue
+
+        span = _face_axis_span(sample.face, axis, occ)
+        if span is not None and span + tolerance < min_full_span:
+            continue
+        inner_radii.append(sample.radius)
+
+    if not inner_radii:
+        return None
+
+    # Multiple matching faces at the same radius are common after boolean ops;
+    # choose the largest full-length internal bore and ignore smaller details.
+    return max(_cluster_radii(inner_radii, tolerance), key=lambda cluster: cluster[0])[0]
+
+
+def _cluster_radii(radii: list[float], tolerance: float) -> list[list[float]]:
+    clusters: list[list[float]] = []
+    for radius in sorted(radii):
+        if clusters and abs(radius - clusters[-1][0]) <= tolerance:
+            clusters[-1].append(radius)
+        else:
+            clusters.append([radius])
+    return clusters
+
+
+def _face_axis_span(face: Any, axis: Axis, occ: Any) -> float | None:
+    projections = [_project_point(point, axis) for point in _iter_vertex_points(face, occ)]
+    if not projections:
+        return None
+    return max(projections) - min(projections)
+
+
+def _face_is_reversed(face: Any, occ: Any) -> bool:
+    try:
+        orientation = face.Orientation()
+    except Exception:
+        return False
+
+    reversed_orientation = getattr(occ, "TopAbs_REVERSED", None)
+    if reversed_orientation is None:
+        try:
+            return int(orientation) == 1
+        except Exception:
+            return False
+
+    if orientation == reversed_orientation:
+        return True
+
+    try:
+        return int(orientation) == int(reversed_orientation)
+    except Exception:
+        return False
 
 
 def _iter_faces(shape: Any, occ: Any) -> Iterable[Any]:
@@ -701,7 +835,7 @@ def _load_occ() -> Any:
         from OCP.IFSelect import IFSelect_RetDone
         from OCP.Interface import Interface_Static
         from OCP.STEPControl import STEPControl_Reader
-        from OCP.TopAbs import TopAbs_FACE, TopAbs_VERTEX
+        from OCP.TopAbs import TopAbs_FACE, TopAbs_REVERSED, TopAbs_VERTEX
         from OCP.TopExp import TopExp_Explorer
         from OCP.TopoDS import TopoDS
 
@@ -724,7 +858,7 @@ def _load_occ() -> Any:
             from OCC.Core.IFSelect import IFSelect_RetDone
             from OCC.Core.Interface import Interface_Static
             from OCC.Core.STEPControl import STEPControl_Reader
-            from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_VERTEX
+            from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED, TopAbs_VERTEX
             from OCC.Core.TopExp import TopExp_Explorer
             from OCC.Core import topods
 
@@ -765,6 +899,7 @@ class _OccNamespace:
         self.Interface_Static = values.get("Interface_Static")
         self.STEPControl_Reader = values["STEPControl_Reader"]
         self.TopAbs_FACE = values["TopAbs_FACE"]
+        self.TopAbs_REVERSED = values.get("TopAbs_REVERSED")
         self.TopAbs_VERTEX = values["TopAbs_VERTEX"]
         self.TopExp_Explorer = values["TopExp_Explorer"]
         self.TopoDS = values.get("TopoDS")
