@@ -1,3 +1,5 @@
+from math import radians
+
 import pytest
 
 pytest.importorskip("OCP.BRepAlgoAPI")
@@ -7,10 +9,12 @@ pytest.importorskip("OCP.BRepPrimAPI")
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
-from OCP.gp import gp_Pnt, gp_Trsf, gp_Vec
+from OCP.gp import gp_Ax1, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 
+from backend.app import step_analyzer
 from backend.app.step_analyzer import (
     _load_occ,
+    analyze_step_file,
     detect_cylindrical_stock,
     detect_cylindrical_stock_relaxed,
 )
@@ -38,6 +42,27 @@ def _fuse(first, second):
     operation.Build()
     assert operation.IsDone()
     return operation.Shape()
+
+
+def _rotate_z(shape, degrees: float):
+    transform = gp_Trsf()
+    transform.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), radians(degrees))
+    return BRepBuilderAPI_Transform(shape, transform, True).Shape()
+
+
+def test_prismatic_analysis_uses_axis_aligned_bounds(monkeypatch) -> None:
+    occ = _load_occ()
+    rotated_box = _rotate_z(BRepPrimAPI_MakeBox(10, 20, 30).Shape(), 30)
+    monkeypatch.setattr(step_analyzer, "_load_occ", lambda: occ)
+    monkeypatch.setattr(step_analyzer, "parse_step_file", lambda _path, _occ: rotated_box)
+
+    result = analyze_step_file("unused.step")
+
+    assert result["classification"] == "prismatic"
+    assert result["length_mm"] == pytest.approx(18.660254, rel=1e-6)
+    assert result["width_mm"] == pytest.approx(22.320508, rel=1e-6)
+    assert result["height_mm"] == pytest.approx(30.0)
+    assert "axis_aligned_in" in result["details"]
 
 
 def test_strict_tube_detection_reports_inner_radius() -> None:
