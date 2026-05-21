@@ -11,7 +11,9 @@ type StatusTone = "neutral" | "success" | "error";
 type StepAnalysisPayload = {
   classification: "cylindrical" | "prismatic" | string;
   format: string;
+  diameter_in?: number;
   diameter_mm?: number;
+  inner_diameter_in?: number | null;
   inner_diameter_mm?: number | null;
   length_mm: number;
   width_mm?: number;
@@ -39,6 +41,13 @@ type Bounds = {
   maxX: number;
   maxY: number;
   maxZ: number;
+};
+
+type AxisKey = "x" | "y" | "z";
+
+type SelectedGeometry = {
+  bounds: Bounds;
+  vertices: OvVertex[];
 };
 
 let warmedOcctWorker: Worker | null = null;
@@ -144,6 +153,19 @@ function formatPrismaticIn(lengthMm: number, widthMm: number, heightMm: number):
   const width = ceilTo(widthMm * mmToInch, 3).toFixed(3);
   const height = ceilTo(heightMm * mmToInch, 3).toFixed(3);
   return `${length} X ${width} X ${height}`;
+}
+
+function formatRodIn(diameterMm: number, lengthMm: number): string {
+  const diameter = ceilTo(diameterMm * mmToInch, 3).toFixed(3);
+  const length = ceilTo(lengthMm * mmToInch, 3).toFixed(3);
+  return `DIA ${diameter} X ${length}`;
+}
+
+function formatPipeIn(outerDiameterMm: number, innerDiameterMm: number, lengthMm: number): string {
+  const outerDiameter = ceilTo(outerDiameterMm * mmToInch, 3).toFixed(3);
+  const innerDiameter = ceilTo(innerDiameterMm * mmToInch, 3).toFixed(3);
+  const length = ceilTo(lengthMm * mmToInch, 3).toFixed(3);
+  return `OD ${outerDiameter} X ID ${innerDiameter} X ${length}`;
 }
 
 function formatResult(payload: StepAnalysisPayload, unit: Unit): string {
@@ -302,6 +324,37 @@ function isNodeEffectivelyVisible(node: OvNode, disabledNodeIds: Set<number>): b
   return true;
 }
 
+function calculateSelectedGeometry(model: OvModel, disabledNodeIds: Set<number>): SelectedGeometry | null {
+  const bounds: Bounds = {
+    minX: Infinity,
+    minY: Infinity,
+    minZ: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity,
+    maxZ: -Infinity,
+  };
+  const vertices: OvVertex[] = [];
+  let hasVertex = false;
+
+  model.EnumerateMeshInstances((meshInstance) => {
+    if (!isNodeEffectivelyVisible(meshInstance.node, disabledNodeIds)) {
+      return;
+    }
+    meshInstance.EnumerateVertices((vertex) => {
+      vertices.push(vertex);
+      bounds.minX = Math.min(bounds.minX, vertex.x);
+      bounds.minY = Math.min(bounds.minY, vertex.y);
+      bounds.minZ = Math.min(bounds.minZ, vertex.z);
+      bounds.maxX = Math.max(bounds.maxX, vertex.x);
+      bounds.maxY = Math.max(bounds.maxY, vertex.y);
+      bounds.maxZ = Math.max(bounds.maxZ, vertex.z);
+      hasVertex = true;
+    });
+  });
+
+  return hasVertex ? { bounds, vertices } : null;
+}
+
 async function analyzeFileOnServer(file: File): Promise<StepAnalysisPayload> {
   const form = new FormData();
   form.append("file", file);
@@ -318,41 +371,148 @@ async function analyzeFileOnServer(file: File): Promise<StepAnalysisPayload> {
   return payload as StepAnalysisPayload;
 }
 
-function calculateSelectedBoundingBox(model: OvModel, disabledNodeIds: Set<number>): Bounds | null {
-  const bounds: Bounds = {
-    minX: Infinity,
-    minY: Infinity,
-    minZ: Infinity,
-    maxX: -Infinity,
-    maxY: -Infinity,
-    maxZ: -Infinity,
-  };
-  let hasVertex = false;
+function boundsDimension(bounds: Bounds, axis: AxisKey): number {
+  if (axis === "x") {
+    return bounds.maxX - bounds.minX;
+  }
+  if (axis === "y") {
+    return bounds.maxY - bounds.minY;
+  }
+  return bounds.maxZ - bounds.minZ;
+}
 
-  model.EnumerateMeshInstances((meshInstance) => {
-    if (!isNodeEffectivelyVisible(meshInstance.node, disabledNodeIds)) {
-      return;
+function boundsCenter(bounds: Bounds, axis: AxisKey): number {
+  if (axis === "x") {
+    return (bounds.minX + bounds.maxX) / 2.0;
+  }
+  if (axis === "y") {
+    return (bounds.minY + bounds.maxY) / 2.0;
+  }
+  return (bounds.minZ + bounds.maxZ) / 2.0;
+}
+
+function vertexAxisValue(vertex: OvVertex, axis: AxisKey): number {
+  return vertex[axis];
+}
+
+function angularBinCount(vertices: OvVertex[], axisA: AxisKey, axisB: AxisKey, centerA: number, centerB: number, radius: number) {
+  const bins = new Set<number>();
+  const radiusTolerance = Math.max(radius * 0.04, 0.02);
+
+  for (const vertex of vertices) {
+    const offsetA = vertexAxisValue(vertex, axisA) - centerA;
+    const offsetB = vertexAxisValue(vertex, axisB) - centerB;
+    const vertexRadius = Math.hypot(offsetA, offsetB);
+    if (Math.abs(vertexRadius - radius) > radiusTolerance) {
+      continue;
     }
-    meshInstance.EnumerateVertices((vertex) => {
-      bounds.minX = Math.min(bounds.minX, vertex.x);
-      bounds.minY = Math.min(bounds.minY, vertex.y);
-      bounds.minZ = Math.min(bounds.minZ, vertex.z);
-      bounds.maxX = Math.max(bounds.maxX, vertex.x);
-      bounds.maxY = Math.max(bounds.maxY, vertex.y);
-      bounds.maxZ = Math.max(bounds.maxZ, vertex.z);
-      hasVertex = true;
-    });
-  });
+    const angle = Math.atan2(offsetB, offsetA);
+    bins.add(Math.floor(((angle + Math.PI) / (Math.PI * 2)) * 16));
+  }
 
-  return hasVertex ? bounds : null;
+  return bins.size;
+}
+
+function detectInnerDiameter(
+  vertices: OvVertex[],
+  axisA: AxisKey,
+  axisB: AxisKey,
+  centerA: number,
+  centerB: number,
+  outerRadius: number,
+): number | null {
+  const clusterTolerance = Math.max(outerRadius * 0.035, 0.02);
+  const clusters: Array<{ radius: number; count: number }> = [];
+
+  for (const vertex of vertices) {
+    const radius = Math.hypot(
+      vertexAxisValue(vertex, axisA) - centerA,
+      vertexAxisValue(vertex, axisB) - centerB,
+    );
+    if (radius < outerRadius * 0.08 || radius > outerRadius * 0.86) {
+      continue;
+    }
+
+    const cluster = clusters.find((item) => Math.abs(item.radius - radius) <= clusterTolerance);
+    if (cluster) {
+      cluster.radius = (cluster.radius * cluster.count + radius) / (cluster.count + 1);
+      cluster.count += 1;
+    } else {
+      clusters.push({ radius, count: 1 });
+    }
+  }
+
+  const candidates = clusters
+    .filter((cluster) => cluster.count >= 8)
+    .filter((cluster) => angularBinCount(vertices, axisA, axisB, centerA, centerB, cluster.radius) >= 8)
+    .sort((a, b) => a.radius - b.radius);
+
+  return candidates[0] ? candidates[0].radius * 2.0 : null;
+}
+
+function selectedCylindricalPayload(geometry: SelectedGeometry): StepAnalysisPayload | null {
+  const axes: AxisKey[] = ["x", "y", "z"];
+
+  for (const lengthAxis of axes) {
+    const crossAxes = axes.filter((axis) => axis !== lengthAxis);
+    const [axisA, axisB] = crossAxes;
+    const diameterA = boundsDimension(geometry.bounds, axisA);
+    const diameterB = boundsDimension(geometry.bounds, axisB);
+    const diameter = Math.max(diameterA, diameterB);
+    const lengthMm = boundsDimension(geometry.bounds, lengthAxis);
+    const diameterTolerance = Math.max(diameter * 0.015, 0.03);
+
+    if (diameter <= 0 || lengthMm <= 0 || Math.abs(diameterA - diameterB) > diameterTolerance) {
+      continue;
+    }
+
+    const centerA = boundsCenter(geometry.bounds, axisA);
+    const centerB = boundsCenter(geometry.bounds, axisB);
+    const outerRadius = diameter / 2.0;
+    if (angularBinCount(geometry.vertices, axisA, axisB, centerA, centerB, outerRadius) < 8) {
+      continue;
+    }
+
+    const innerDiameterMm = detectInnerDiameter(geometry.vertices, axisA, axisB, centerA, centerB, outerRadius);
+    const lengthIn = ceilTo(lengthMm * mmToInch, 3);
+    const diameterIn = ceilTo(diameter * mmToInch, 3);
+    const payload: StepAnalysisPayload = {
+      classification: "cylindrical",
+      diameter_mm: diameter,
+      diameter_in: diameterIn,
+      length_mm: lengthMm,
+      length_in: lengthIn,
+      format: formatRodIn(diameter, lengthMm),
+      detected_material: null,
+      details: {
+        bounding: "Selected visible viewer geometry; excluded hierarchy items are omitted.",
+      },
+    };
+
+    if (innerDiameterMm) {
+      payload.inner_diameter_mm = innerDiameterMm;
+      payload.inner_diameter_in = ceilTo(innerDiameterMm * mmToInch, 3);
+      payload.format = formatPipeIn(diameter, innerDiameterMm, lengthMm);
+    }
+
+    return payload;
+  }
+
+  return null;
 }
 
 function selectedBoundingPayload(model: OvModel, disabledNodeIds: Set<number>): StepAnalysisPayload | null {
-  const bounds = calculateSelectedBoundingBox(model, disabledNodeIds);
-  if (!bounds) {
+  const geometry = calculateSelectedGeometry(model, disabledNodeIds);
+  if (!geometry) {
     return null;
   }
 
+  const cylindricalPayload = selectedCylindricalPayload(geometry);
+  if (cylindricalPayload) {
+    return cylindricalPayload;
+  }
+
+  const { bounds } = geometry;
   const sortedDimensions = [
     bounds.maxX - bounds.minX,
     bounds.maxY - bounds.minY,
