@@ -13,6 +13,7 @@ const partListEl = document.querySelector("#part-list");
 const selectAllPartsButton = document.querySelector("#select-all-parts");
 
 const allowedExtensions = [".stp", ".step"];
+const occtWorkerUrl = "/static/vendor/occt-import-js/occt-import-js-worker.js";
 const mmToInch = 1.0 / 25.4;
 const extensionAsyncResponseError = "A listener indicated an asynchronous response by returning true";
 
@@ -23,6 +24,8 @@ let modelRootNode = null;
 let disabledNodeIds = new Set();
 let hierarchyEntries = [];
 let loadToken = 0;
+let warmedOcctWorker = null;
+let occtWarmupPromise = null;
 
 function ceilTo(value, decimals) {
   const factor = Math.pow(10, decimals);
@@ -86,6 +89,66 @@ function setStatus(message, tone = "neutral") {
   statusEl.textContent = message;
   statusEl.dataset.tone = tone;
 }
+
+function warmOcctRuntime() {
+  if (!window.Worker || occtWarmupPromise) {
+    return occtWarmupPromise || Promise.resolve(null);
+  }
+
+  occtWarmupPromise = new Promise((resolve) => {
+    let worker = null;
+    try {
+      worker = new Worker(occtWorkerUrl);
+    } catch {
+      resolve(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      worker.terminate();
+      resolve(null);
+    }, 15000);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      worker.removeEventListener("message", handleMessage);
+      worker.removeEventListener("error", handleError);
+    };
+    const handleMessage = (event) => {
+      if (event.data?.type !== "warmup") {
+        return;
+      }
+      cleanup();
+      warmedOcctWorker = worker;
+      resolve(worker);
+    };
+    const handleError = () => {
+      cleanup();
+      worker.terminate();
+      resolve(null);
+    };
+
+    worker.addEventListener("message", handleMessage);
+    worker.addEventListener("error", handleError);
+    worker.postMessage({ type: "warmup" });
+  });
+
+  return occtWarmupPromise;
+}
+
+window.__stepStockTakeWarmedOcctWorker = async () => {
+  if (!warmedOcctWorker) {
+    await warmOcctRuntime();
+  }
+
+  if (!warmedOcctWorker) {
+    return new Worker(occtWorkerUrl);
+  }
+
+  const worker = warmedOcctWorker;
+  warmedOcctWorker = null;
+  occtWarmupPromise = null;
+  return worker;
+};
 
 function isExtensionAsyncResponseError(error) {
   const message = typeof error === "string" ? error : error?.message;
@@ -471,4 +534,10 @@ dropZone.addEventListener("drop", (event) => {
 
 fileInput.addEventListener("change", () => {
   analyzeFile(fileInput.files[0]).catch(showAnalyzeError);
+});
+
+window.addEventListener("load", () => {
+  window.setTimeout(() => {
+    warmOcctRuntime().catch(() => {});
+  }, 0);
 });
