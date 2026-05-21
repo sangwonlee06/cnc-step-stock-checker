@@ -14,7 +14,11 @@ def test_security_headers_are_applied() -> None:
     csp = response.headers["content-security-policy"]
     assert "frame-ancestors 'none'" in csp
     assert "'unsafe-eval'" in csp
-    assert "https://static.cloudflareinsights.com" in csp
+    assert "worker-src 'self' blob:" in csp
+    assert "connect-src 'self';" in csp
+    assert "https://cdn.jsdelivr.net" not in csp
+    assert "https://static.cloudflareinsights.com" not in csp
+    assert "https://cloudflareinsights.com" not in csp
     assert response.headers["cache-control"] == "no-store"
 
 

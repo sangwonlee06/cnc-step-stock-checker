@@ -98,10 +98,9 @@ def _apply_security_headers(response: Response) -> None:
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com "
-        "'wasm-unsafe-eval' 'unsafe-eval'; "
+        "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; "
         "style-src 'self'; "
-        "connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; "
+        "connect-src 'self'; "
         "img-src 'self' data:; "
         "object-src 'none'; "
         "worker-src 'self' blob:; "
