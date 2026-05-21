@@ -11,7 +11,10 @@ def test_security_headers_are_applied() -> None:
     assert response.status_code == 200
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
-    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    csp = response.headers["content-security-policy"]
+    assert "frame-ancestors 'none'" in csp
+    assert "'unsafe-eval'" in csp
+    assert "https://static.cloudflareinsights.com" in csp
     assert response.headers["cache-control"] == "no-store"
 
 
