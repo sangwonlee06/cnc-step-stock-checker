@@ -5,8 +5,9 @@
   "main": "desktop/main.js",
   "private": true,
   "scripts": {
-    "desktop": "electron .",
-    "dist": "electron-builder",
+    "frontend:build": "npm --prefix frontend-react run build",
+    "desktop": "npm run frontend:build && electron .",
+    "dist": "npm run frontend:build && electron-builder",
     "test": "python -m pytest"
   },
   "build": {
@@ -17,6 +18,7 @@
       "desktop/**/*",
       "backend/**/*",
       "frontend/**/*",
+      "frontend-react/dist/**/*",
       "requirements.txt",
       "package.json"
     ],

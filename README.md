@@ -6,7 +6,8 @@ A desktop STEP analysis app that accepts `.stp` / `.step` files and returns CNC
 stock dimensions in inches or millimetres, rounded upward.
 
 The desktop app uses Electron for the window and starts the existing FastAPI
-analysis backend locally on `127.0.0.1`. Files are processed on the user's
+analysis backend locally on `127.0.0.1`. The UI is built from the Vite + React
++ TypeScript frontend in `frontend-react/`. Files are processed on the user's
 machine instead of a hosted server.
 
 ## What It Does
@@ -91,10 +92,11 @@ If `python3.12` is not available on your machine, install Python 3.12 from pytho
 
 If the OpenCASCADE wheel does not install cleanly on macOS, use the conda option below.
 
-Install Electron dependencies:
+Install Electron and frontend dependencies:
 
 ```bash
 npm install
+npm --prefix frontend-react install
 ```
 
 ### Alternative with conda
@@ -112,8 +114,8 @@ npm install
 npm run desktop
 ```
 
-The Electron app starts the FastAPI backend on an available local port beginning
-at `8765`, then opens the app window.
+The script first builds the React frontend, then Electron starts the FastAPI
+backend on an available local port beginning at `8765` and opens the app window.
 
 If the Python executable is not auto-detected, set `PYTHON` explicitly:
 
@@ -148,7 +150,11 @@ Then open:
 http://127.0.0.1:8000
 ```
 
-## Local Docker
+## Local Docker / Railway-style Deploy
+
+The root `Dockerfile` builds `frontend-react/` and copies the Vite output into
+the backend image. Railway deployments that use this root `Dockerfile` therefore
+serve the React frontend through FastAPI.
 
 Build the production image from the repository root:
 
@@ -179,9 +185,8 @@ backend.app.main:app
 
 ## Local Docker Compose
 
-The legacy static frontend remains in `frontend/` for reference and desktop/backend
-compatibility. The containerized web frontend lives in `frontend-react/` and uses
-Vite + React + TypeScript.
+The legacy static frontend remains in `frontend/` for reference. Docker Compose
+uses the dedicated `frontend-react/` Vite + React + TypeScript frontend service.
 
 Run the split frontend/backend stack:
 

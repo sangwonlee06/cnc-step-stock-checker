@@ -1,3 +1,13 @@
+FROM node:22-alpine AS frontend-build
+
+WORKDIR /app
+
+COPY frontend-react/package*.json ./
+RUN npm ci
+
+COPY frontend-react ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -21,6 +31,7 @@ RUN python -m pip install --upgrade pip \
 
 COPY backend ./backend
 COPY frontend ./frontend
+COPY --from=frontend-build /app/dist ./frontend-react/dist
 
 RUN useradd --create-home --shell /usr/sbin/nologin appuser \
     && chown -R appuser:appuser /app

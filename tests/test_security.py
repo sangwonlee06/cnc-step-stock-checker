@@ -37,7 +37,7 @@ def test_viewer_runtime_static_assets_are_cacheable() -> None:
 def test_non_runtime_static_assets_remain_no_store() -> None:
     client = TestClient(app_main.app)
 
-    response = client.get("/static/app.js")
+    response = client.get("/static/vendor/occt-import-js/license.occt.txt")
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"

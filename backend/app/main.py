@@ -41,7 +41,14 @@ logging.basicConfig(
 logger = logging.getLogger("step_stock")
 
 ROOT = Path(__file__).resolve().parents[2]
-FRONTEND_DIR = ROOT / "frontend"
+LEGACY_FRONTEND_DIR = ROOT / "frontend"
+REACT_FRONTEND_DIR = ROOT / "frontend-react" / "dist"
+FRONTEND_DIR = (
+    REACT_FRONTEND_DIR
+    if (REACT_FRONTEND_DIR / "index.html").exists()
+    else LEGACY_FRONTEND_DIR
+)
+USING_REACT_FRONTEND = FRONTEND_DIR == REACT_FRONTEND_DIR
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "30"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "300"))
@@ -194,8 +201,11 @@ def index() -> FileResponse:
 
 @app.get("/googleb639f0cad68181c7.html")
 def google_site_verification() -> FileResponse:
+    verification_file = FRONTEND_DIR / "googleb639f0cad68181c7.html"
+    if not verification_file.exists():
+        verification_file = LEGACY_FRONTEND_DIR / "googleb639f0cad68181c7.html"
     return FileResponse(
-        FRONTEND_DIR / "googleb639f0cad68181c7.html",
+        verification_file,
         media_type="text/html",
     )
 
@@ -205,7 +215,11 @@ def favicon() -> Response:
     return Response(status_code=204)
 
 
-app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+if USING_REACT_FRONTEND:
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIR / "static"), name="static")
+else:
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 
 @app.post("/api/analyze")
