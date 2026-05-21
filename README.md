@@ -1,20 +1,22 @@
 https://stepstockcalculator.com/
 
-# CNC STEP Stock Checker Desktop
+# STEP Stock Size Calculator
 
-A desktop STEP analysis app that accepts `.stp` / `.step` files and returns CNC
-stock dimensions in inches or millimetres, rounded upward.
+A STEP analysis app that accepts `.stp` / `.step` files and returns CNC stock
+dimensions in inches or millimetres, rounded upward.
 
-The desktop app uses Electron for the window and starts the existing FastAPI
-analysis backend locally on `127.0.0.1`. The UI is built from the Vite + React
-+ TypeScript frontend in `frontend-react/`. Files are processed on the user's
-machine instead of a hosted server.
+The current frontend is a Vite + React + TypeScript app in `frontend-react/`.
+The FastAPI backend serves that React build for Railway/root-Docker deployment
+and for the Electron desktop app. The older plain JavaScript frontend remains in
+`frontend/` only as a reference/fallback.
 
 ## What It Does
 
-- Drag-and-drop STEP upload (1 MB max).
+- Drag-and-drop STEP upload (10 MB max by default).
 - Parses exact B-Rep geometry through OpenCASCADE.
 - Uses a precise OpenCASCADE axis-aligned bounding box for non-round parts.
+- Renders STEP files in a same-origin Online3DViewer/OCCT viewer.
+- Lets users uncheck hierarchy parts so excluded geometry does not contribute to the displayed stock size.
 - Returns prismatic stock as:
 
   ```text
@@ -37,6 +39,7 @@ machine instead of a hosted server.
 - The temporary file is deleted immediately after the result is returned, even when analysis fails.
 - The application is designed not to retain uploaded STEP files as saved jobs or history.
 - The backend uses `Cache-Control: no-store` on responses to reduce browser and intermediary caching.
+- Viewer runtime assets are self-hosted under `/static/vendor/` to avoid CDN runtime loading for confidential model workflows.
 
 If you deploy behind a proxy, CDN, APM agent, or platform logging layer, make sure those services are also configured not to retain upload payloads.
 
@@ -60,6 +63,33 @@ ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com
 ```
 
 Set `ALLOWED_ORIGINS` only if another origin needs browser access to the API.
+
+## Frontend Architecture
+
+The production UI lives in `frontend-react/`:
+
+- Vite builds the React TypeScript app into `frontend-react/dist/`.
+- FastAPI serves `frontend-react/dist/index.html` when that build exists.
+- Railway deployments using the root `Dockerfile` build and serve this React output.
+- Electron runs `npm run frontend:build` before opening the local FastAPI app, so desktop also uses React.
+- Docker Compose runs a separate nginx frontend service from the same React code and proxies `/api` to the backend service.
+
+The legacy `frontend/` directory is intentionally kept in the repository for
+reference and fallback, but it is not the primary UI path after building the
+React frontend.
+
+The self-hosted viewer runtime is copied into `frontend-react/public/static/vendor/`.
+The app still loads:
+
+```text
+/static/vendor/o3dv.min.js
+/static/vendor/occt-import-js/occt-import-js-worker.js
+/static/vendor/occt-import-js/occt-import-js.js
+/static/vendor/occt-import-js/occt-import-js.wasm
+```
+
+Those runtime files are allowed to use long-lived immutable cache headers, while
+uploads, API responses, and the app shell remain conservative with `no-store`.
 
 ## Cylinder Detection
 
@@ -106,6 +136,7 @@ conda create -n cnc-stock python=3.11 -c conda-forge pythonocc-core fastapi uvic
 conda activate cnc-stock
 python -m pip install -r requirements.txt
 npm install
+npm --prefix frontend-react install
 ```
 
 ## Desktop Run
@@ -138,9 +169,10 @@ installed, or `PYTHON` must point to a compatible environment.
 
 ## Local Web Run
 
-You can still run the FastAPI web app directly:
+Build the React frontend first, then run the FastAPI app directly:
 
 ```bash
+npm run frontend:build
 uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -149,6 +181,21 @@ Then open:
 ```text
 http://127.0.0.1:8000
 ```
+
+If `frontend-react/dist/` is missing, FastAPI falls back to the legacy
+`frontend/` directory. For the current React UI, always build the frontend first.
+
+For frontend-only development, you can run Vite and proxy API calls to a local
+FastAPI server:
+
+```bash
+uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+npm --prefix frontend-react run dev
+```
+
+Then open the Vite URL printed in the terminal. If the backend is not running on
+the default Vite proxy target, update `frontend-react/vite.config.ts`.
+
 
 ## Local Docker / Railway-style Deploy
 
@@ -185,8 +232,8 @@ backend.app.main:app
 
 ## Local Docker Compose
 
-The legacy static frontend remains in `frontend/` for reference. Docker Compose
-uses the dedicated `frontend-react/` Vite + React + TypeScript frontend service.
+Docker Compose uses the dedicated `frontend-react/` Vite + React + TypeScript
+frontend service.
 
 Run the split frontend/backend stack:
 
@@ -207,9 +254,9 @@ requests.
 ## Core Files
 
 - `backend/app/step_analyzer.py`: STEP parsing, bounding boxes, cylinder detection, output formatting.
-- `backend/app/main.py`: FastAPI upload endpoint.
-- `desktop/main.js`: Electron shell that starts the local backend and opens the app window.
-- `frontend/index.html`: Drag-and-drop UI.
-- `frontend/app.js`: Upload handling and result rendering.
-- `frontend/styles.css`: Minimal responsive styling.
-- `frontend-react/`: Vite + React + TypeScript frontend used by Docker Compose.
+- `backend/app/main.py`: FastAPI upload endpoint, security/cache headers, and static serving for the React build.
+- `desktop/main.js`: Electron shell that starts the local backend and opens the React UI.
+- `frontend-react/src/App.tsx`: React TypeScript upload, viewer, hierarchy selection, and result logic.
+- `frontend-react/src/styles.css`: React frontend styling.
+- `frontend-react/public/static/vendor/`: Self-hosted Online3DViewer/OCCT runtime assets.
+- `frontend/`: Legacy plain JavaScript frontend kept for reference/fallback.
