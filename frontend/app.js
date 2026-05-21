@@ -14,6 +14,7 @@ const selectAllPartsButton = document.querySelector("#select-all-parts");
 
 const allowedExtensions = [".stp", ".step"];
 const mmToInch = 1.0 / 25.4;
+const extensionAsyncResponseError = "A listener indicated an asynchronous response by returning true";
 
 let currentUnit = "in";
 let lastPayload = null;
@@ -84,6 +85,20 @@ function setUnit(unit) {
 function setStatus(message, tone = "neutral") {
   statusEl.textContent = message;
   statusEl.dataset.tone = tone;
+}
+
+function isExtensionAsyncResponseError(error) {
+  const message = typeof error === "string" ? error : error?.message;
+  return Boolean(message?.includes(extensionAsyncResponseError));
+}
+
+function showAnalyzeError(error) {
+  resetSelectionUi();
+  resultEl.textContent = "-.--- X -.--- X -.---";
+  metaEl.textContent = "No result.";
+  detectedMaterialEl.textContent = "";
+  materialBetaNoticeEl.hidden = true;
+  setStatus(error?.message || "Unable to analyze this STEP file.", "error");
 }
 
 function isStepFile(file) {
@@ -395,28 +410,35 @@ async function analyzeFile(file) {
       defaultColor: new OV.RGBColor(194, 204, 198),
       edgeSettings: new OV.EdgeSettings(false, new OV.RGBColor(0, 0, 0), 1),
       onModelLoaded: () => {
-        if (currentLoadToken !== loadToken) {
-          return;
+        try {
+          if (currentLoadToken !== loadToken || !embeddedViewer) {
+            return;
+          }
+          const model = embeddedViewer.GetModel();
+          modelRootNode = model.GetRootNode();
+          disabledNodeIds = new Set();
+          renderHierarchy(model, file.name);
+          updateViewerVisibility();
+          updateSelectedBoundingResult();
+        } catch (error) {
+          showAnalyzeError(error);
         }
-        const model = embeddedViewer.GetModel();
-        modelRootNode = model.GetRootNode();
-        disabledNodeIds = new Set();
-        renderHierarchy(model, file.name);
-        updateViewerVisibility();
-        updateSelectedBoundingResult();
       },
     });
 
     embeddedViewer.LoadModelFromFileList([file]);
   } catch (error) {
-    resetSelectionUi();
-    resultEl.textContent = "-.--- X -.--- X -.---";
-    metaEl.textContent = "No result.";
-    detectedMaterialEl.textContent = "";
-    materialBetaNoticeEl.hidden = true;
-    setStatus(error.message, "error");
+    showAnalyzeError(error);
   }
 }
+
+window.addEventListener("unhandledrejection", (event) => {
+  // Chrome extensions can reject during file drag/drop via their injected listeners.
+  // This app does not use extension messaging, so ignore only that known browser noise.
+  if (isExtensionAsyncResponseError(event.reason)) {
+    event.preventDefault();
+  }
+});
 
 unitToggle.addEventListener("click", () => {
   setUnit(currentUnit === "in" ? "mm" : "in");
@@ -444,9 +466,9 @@ dropZone.addEventListener("dragleave", () => {
 dropZone.addEventListener("drop", (event) => {
   event.preventDefault();
   dropZone.dataset.active = "false";
-  analyzeFile(event.dataTransfer.files[0]);
+  analyzeFile(event.dataTransfer.files[0]).catch(showAnalyzeError);
 });
 
 fileInput.addEventListener("change", () => {
-  analyzeFile(fileInput.files[0]);
+  analyzeFile(fileInput.files[0]).catch(showAnalyzeError);
 });
