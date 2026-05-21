@@ -389,6 +389,8 @@ export function App() {
   const viewerElRef = useRef<HTMLDivElement>(null);
   const embeddedViewerRef = useRef<OvEmbeddedViewer | null>(null);
   const modelRootNodeRef = useRef<OvNode | null>(null);
+  const fullModelPayloadRef = useRef<StepAnalysisPayload | null>(null);
+  const disabledNodeIdsRef = useRef<Set<number>>(new Set());
   const loadTokenRef = useRef(0);
 
   useEffect(() => {
@@ -411,6 +413,7 @@ export function App() {
 
   const resetSelectionUi = () => {
     modelRootNodeRef.current = null;
+    disabledNodeIdsRef.current = new Set();
     setDisabledNodeIds(new Set());
     setPartEntries([]);
     setViewerVisible(false);
@@ -421,6 +424,7 @@ export function App() {
       embeddedViewerRef.current.Destroy();
       embeddedViewerRef.current = null;
     }
+    fullModelPayloadRef.current = null;
     viewerElRef.current?.replaceChildren();
     resetSelectionUi();
   };
@@ -449,7 +453,10 @@ export function App() {
       return;
     }
     const model = embeddedViewer.GetModel();
-    const payload = selectedBoundingPayload(model, nextDisabledNodeIds);
+    const payload =
+      nextDisabledNodeIds.size === 0 && fullModelPayloadRef.current
+        ? fullModelPayloadRef.current
+        : selectedBoundingPayload(model, nextDisabledNodeIds);
     if (!payload) {
       setLastPayload(null);
       setEmptySelection(true);
@@ -499,6 +506,8 @@ export function App() {
         return;
       }
 
+      const fullModelAnalysisPromise = analyzeFileOnServer(file).catch(() => null);
+
       setViewerVisible(true);
       setPartEntries([]);
       const viewerElement = viewerElRef.current;
@@ -516,21 +525,24 @@ export function App() {
         defaultColor: new window.OV.RGBColor(194, 204, 198),
         edgeSettings: new window.OV.EdgeSettings(false, new window.OV.RGBColor(0, 0, 0), 1),
         onModelLoaded: () => {
-          try {
+          void (async () => {
             if (currentLoadToken !== loadTokenRef.current || !embeddedViewerRef.current) {
               return;
             }
             const model = embeddedViewerRef.current.GetModel();
             modelRootNodeRef.current = model.GetRootNode();
             const nextDisabledNodeIds = new Set<number>();
+            disabledNodeIdsRef.current = nextDisabledNodeIds;
             setDisabledNodeIds(nextDisabledNodeIds);
             setPartEntries(buildHierarchyRows(model, file.name));
             updateViewerVisibility(nextDisabledNodeIds);
             embeddedViewerRef.current.Resize();
-            updateSelectedBoundingResult(nextDisabledNodeIds);
-          } catch (error) {
-            showAnalyzeError(error);
-          }
+            fullModelPayloadRef.current = await fullModelAnalysisPromise;
+            if (currentLoadToken !== loadTokenRef.current) {
+              return;
+            }
+            updateSelectedBoundingResult(disabledNodeIdsRef.current);
+          })().catch(showAnalyzeError);
         },
       });
 
@@ -547,6 +559,7 @@ export function App() {
       enableNodeAncestors(entry.node, nextDisabledNodeIds);
     }
     setNodeSubtreeDisabled(entry.node, !checked, nextDisabledNodeIds);
+    disabledNodeIdsRef.current = nextDisabledNodeIds;
     setDisabledNodeIds(nextDisabledNodeIds);
     updateViewerVisibility(nextDisabledNodeIds);
     updateSelectedBoundingResult(nextDisabledNodeIds);
@@ -559,6 +572,7 @@ export function App() {
     }
     const nextDisabledNodeIds = new Set<number>();
     setNodeSubtreeDisabled(root, false, nextDisabledNodeIds);
+    disabledNodeIdsRef.current = nextDisabledNodeIds;
     setDisabledNodeIds(nextDisabledNodeIds);
     updateViewerVisibility(nextDisabledNodeIds);
     updateSelectedBoundingResult(nextDisabledNodeIds);
