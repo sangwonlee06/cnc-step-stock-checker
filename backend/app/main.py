@@ -103,7 +103,7 @@ def _apply_security_headers(response: Response) -> None:
         "connect-src 'self'; "
         "img-src 'self' data:; "
         "object-src 'none'; "
-        "worker-src 'self' blob:; "
+        "worker-src 'self'; "
         "base-uri 'self'; "
         "form-action 'self'; "
         "frame-ancestors 'none'"

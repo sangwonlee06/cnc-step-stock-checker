@@ -1,10 +1,12 @@
-importScripts ('occt-import-js.js');
+const occtImportBaseUrl = '/static/vendor/occt-import-js/';
+
+importScripts (occtImportBaseUrl + 'occt-import-js.js');
 
 onmessage = async function (ev)
 {
 	let modulOverrides = {
 		locateFile: function (path) {
-			return path;
+			return occtImportBaseUrl + path;
 		}
 	};
 	let occt = await occtimportjs (modulOverrides);
