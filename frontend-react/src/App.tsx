@@ -413,38 +413,69 @@ function angularBinCount(vertices: OvVertex[], axisA: AxisKey, axisB: AxisKey, c
   return bins.size;
 }
 
+function radialDistance(vertex: OvVertex, axisA: AxisKey, axisB: AxisKey, centerA: number, centerB: number): number {
+  return Math.hypot(
+    vertexAxisValue(vertex, axisA) - centerA,
+    vertexAxisValue(vertex, axisB) - centerB,
+  );
+}
+
+function axialSpanRatio(vertices: OvVertex[], lengthAxis: AxisKey, lengthMm: number): number {
+  if (vertices.length === 0 || lengthMm <= 0) {
+    return 0;
+  }
+
+  let min = Infinity;
+  let max = -Infinity;
+  for (const vertex of vertices) {
+    const value = vertexAxisValue(vertex, lengthAxis);
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+  }
+
+  return (max - min) / lengthMm;
+}
+
 function detectInnerDiameter(
   vertices: OvVertex[],
+  lengthAxis: AxisKey,
   axisA: AxisKey,
   axisB: AxisKey,
   centerA: number,
   centerB: number,
   outerRadius: number,
+  lengthMm: number,
 ): number | null {
   const clusterTolerance = Math.max(outerRadius * 0.035, 0.02);
-  const clusters: Array<{ radius: number; count: number }> = [];
+  const clusters: Array<{ radius: number; vertices: OvVertex[] }> = [];
 
   for (const vertex of vertices) {
-    const radius = Math.hypot(
-      vertexAxisValue(vertex, axisA) - centerA,
-      vertexAxisValue(vertex, axisB) - centerB,
-    );
-    if (radius < outerRadius * 0.08 || radius > outerRadius * 0.86) {
+    const radius = radialDistance(vertex, axisA, axisB, centerA, centerB);
+    if (radius < outerRadius * 0.18 || radius > outerRadius * 0.78) {
       continue;
     }
 
     const cluster = clusters.find((item) => Math.abs(item.radius - radius) <= clusterTolerance);
     if (cluster) {
-      cluster.radius = (cluster.radius * cluster.count + radius) / (cluster.count + 1);
-      cluster.count += 1;
+      cluster.radius = (cluster.radius * cluster.vertices.length + radius) / (cluster.vertices.length + 1);
+      cluster.vertices.push(vertex);
     } else {
-      clusters.push({ radius, count: 1 });
+      clusters.push({ radius, vertices: [vertex] });
     }
   }
 
   const candidates = clusters
-    .filter((cluster) => cluster.count >= 8)
-    .filter((cluster) => angularBinCount(vertices, axisA, axisB, centerA, centerB, cluster.radius) >= 8)
+    .filter((cluster) => cluster.vertices.length >= 16)
+    .filter((cluster) => angularBinCount(cluster.vertices, axisA, axisB, centerA, centerB, cluster.radius) >= 12)
+    .filter((cluster) => axialSpanRatio(cluster.vertices, lengthAxis, lengthMm) >= 0.75)
+    .filter((cluster) => {
+      const centerCutoff = cluster.radius * 0.65;
+      const centerVertexCount = vertices.filter((vertex) => {
+        return radialDistance(vertex, axisA, axisB, centerA, centerB) < centerCutoff;
+      }).length;
+
+      return centerVertexCount <= Math.max(2, vertices.length * 0.01);
+    })
     .sort((a, b) => a.radius - b.radius);
 
   return candidates[0] ? candidates[0].radius * 2.0 : null;
@@ -473,7 +504,16 @@ function selectedCylindricalPayload(geometry: SelectedGeometry): StepAnalysisPay
       continue;
     }
 
-    const innerDiameterMm = detectInnerDiameter(geometry.vertices, axisA, axisB, centerA, centerB, outerRadius);
+    const innerDiameterMm = detectInnerDiameter(
+      geometry.vertices,
+      lengthAxis,
+      axisA,
+      axisB,
+      centerA,
+      centerB,
+      outerRadius,
+      lengthMm,
+    );
     const lengthIn = ceilTo(lengthMm * mmToInch, 3);
     const diameterIn = ceilTo(diameter * mmToInch, 3);
     const payload: StepAnalysisPayload = {
