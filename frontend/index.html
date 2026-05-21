@@ -38,6 +38,17 @@
             <span class="drop-subtitle">or click to choose .stp / .step (10 MB max)</span>
           </label>
 
+          <div class="viewer-workbench" hidden>
+            <div id="viewer" class="model-viewer" aria-label="3D model viewer"></div>
+            <div class="part-panel" aria-label="Model hierarchy">
+              <div class="part-panel-header">
+                <p class="eyebrow">Included Parts</p>
+                <button id="select-all-parts" class="text-button" type="button">All</button>
+              </div>
+              <div id="part-list" class="part-list"></div>
+            </div>
+          </div>
+
           <div class="upload-meta-row">
             <div id="status" class="status" role="status">Ready for a STEP file.</div>
           </div>
@@ -64,6 +75,7 @@
         </div>
       </section>
     </main>
+    <script src="/static/vendor/o3dv.min.js"></script>
     <script src="/static/app.js"></script>
   </body>
 </html>
