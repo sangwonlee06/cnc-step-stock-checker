@@ -22,6 +22,28 @@ def test_security_headers_are_applied() -> None:
     assert response.headers["cache-control"] == "no-store"
 
 
+def test_viewer_runtime_static_assets_are_cacheable() -> None:
+    client = TestClient(app_main.app)
+
+    for path in app_main.LONG_LIVED_STATIC_ASSETS:
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+        assert "pragma" not in response.headers
+        assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_non_runtime_static_assets_remain_no_store() -> None:
+    client = TestClient(app_main.app)
+
+    response = client.get("/static/app.js")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+
+
 def test_oversized_request_is_rejected_before_parsing() -> None:
     client = TestClient(app_main.app)
 
@@ -32,6 +54,7 @@ def test_oversized_request_is_rejected_before_parsing() -> None:
     )
 
     assert response.status_code == 413
+    assert response.headers["cache-control"] == "no-store"
     assert "Upload must be" in response.json()["detail"]
 
 

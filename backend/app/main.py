@@ -50,6 +50,12 @@ TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "true").lower() in {
     "true",
     "yes",
 }
+LONG_LIVED_STATIC_ASSETS = {
+    "/static/vendor/o3dv.min.js",
+    "/static/vendor/occt-import-js/occt-import-js-worker.js",
+    "/static/vendor/occt-import-js/occt-import-js.js",
+    "/static/vendor/occt-import-js/occt-import-js.wasm",
+}
 
 _rate_limit_buckets: defaultdict[str, deque[float]] = defaultdict(deque)
 
@@ -87,8 +93,6 @@ def _rate_limited(ip_address: str) -> bool:
 
 
 def _apply_security_headers(response: Response) -> None:
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Pragma"] = "no-cache"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -109,6 +113,17 @@ def _apply_security_headers(response: Response) -> None:
         "frame-ancestors 'none'"
     )
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+
+def _apply_cache_headers(response: Response, path: str) -> None:
+    if path in LONG_LIVED_STATIC_ASSETS:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        if "Pragma" in response.headers:
+            del response.headers["Pragma"]
+        return
+
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
 
 
 app = FastAPI(title="CNC STEP Stock Checker")
@@ -150,6 +165,7 @@ async def security_middleware(request: Request, call_next) -> Response:
                 },
             )
             _apply_security_headers(response)
+            _apply_cache_headers(response, request.url.path)
             return response
 
         if _rate_limited(ip_address):
@@ -160,12 +176,14 @@ async def security_middleware(request: Request, call_next) -> Response:
             )
             response.headers["Retry-After"] = str(RATE_LIMIT_WINDOW_SECONDS)
             _apply_security_headers(response)
+            _apply_cache_headers(response, request.url.path)
             return response
 
         logger.info("Analyze request: ip=%s, content_length=%d", ip_address, request_size)
 
     response = await call_next(request)
     _apply_security_headers(response)
+    _apply_cache_headers(response, request.url.path)
     return response
 
 
