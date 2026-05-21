@@ -116,6 +116,24 @@ function isExtensionAsyncResponseError(error: unknown): boolean {
   return Boolean(message?.includes(extensionAsyncResponseError));
 }
 
+function waitForElementLayout(element: HTMLElement): Promise<void> {
+  return new Promise((resolve) => {
+    const waitForFrame = (remainingFrames: number) => {
+      window.requestAnimationFrame(() => {
+        const bounds = element.getBoundingClientRect();
+        if ((bounds.width > 0 && bounds.height > 0) || remainingFrames <= 0) {
+          resolve();
+          return;
+        }
+
+        waitForFrame(remainingFrames - 1);
+      });
+    };
+
+    waitForFrame(10);
+  });
+}
+
 function isStepFile(file: File): boolean {
   const name = file.name.toLowerCase();
   return allowedExtensions.some((ext) => name.endsWith(ext));
@@ -483,8 +501,17 @@ export function App() {
 
       setViewerVisible(true);
       setPartEntries([]);
+      const viewerElement = viewerElRef.current;
+      if (!viewerElement) {
+        throw new Error("Unable to initialize the 3D viewer.");
+      }
 
-      const embeddedViewer = new window.OV.EmbeddedViewer(viewerElRef.current, {
+      await waitForElementLayout(viewerElement);
+      if (currentLoadToken !== loadTokenRef.current) {
+        return;
+      }
+
+      const embeddedViewer = new window.OV.EmbeddedViewer(viewerElement, {
         backgroundColor: new window.OV.RGBAColor(247, 250, 247, 255),
         defaultColor: new window.OV.RGBColor(194, 204, 198),
         edgeSettings: new window.OV.EdgeSettings(false, new window.OV.RGBColor(0, 0, 0), 1),
@@ -499,6 +526,7 @@ export function App() {
             setDisabledNodeIds(nextDisabledNodeIds);
             setPartEntries(buildHierarchyRows(model, file.name));
             updateViewerVisibility(nextDisabledNodeIds);
+            embeddedViewerRef.current.Resize();
             updateSelectedBoundingResult(nextDisabledNodeIds);
           } catch (error) {
             showAnalyzeError(error);

@@ -42,6 +42,7 @@ declare global {
     GetViewer(): OvViewer;
     GetModel(): OvModel;
     LoadModelFromFileList(files: File[]): void;
+    Resize(): void;
   };
 
   type OvNamespace = {
