@@ -177,6 +177,28 @@ The container uses Python 3.12 and starts the ASGI app at:
 backend.app.main:app
 ```
 
+## Local Docker Compose
+
+The legacy static frontend remains in `frontend/` for reference and desktop/backend
+compatibility. The containerized web frontend lives in `frontend-react/` and uses
+Vite + React + TypeScript.
+
+Run the split frontend/backend stack:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080
+```
+
+The `frontend` service serves the Vite production build with nginx and proxies
+`/api` to the `backend` service, so browser uploads still use same-origin
+requests.
+
 ## Core Files
 
 - `backend/app/step_analyzer.py`: STEP parsing, bounding boxes, cylinder detection, output formatting.
@@ -185,3 +207,4 @@ backend.app.main:app
 - `frontend/index.html`: Drag-and-drop UI.
 - `frontend/app.js`: Upload handling and result rendering.
 - `frontend/styles.css`: Minimal responsive styling.
+- `frontend-react/`: Vite + React + TypeScript frontend used by Docker Compose.
