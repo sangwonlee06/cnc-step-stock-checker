@@ -94,29 +94,44 @@ h1 {
   letter-spacing: -0.055em;
 }
 
-.unit {
+.unit-switch {
   flex: 0 0 auto;
   display: inline-grid;
-  place-items: center;
-  min-width: 50px;
-  min-height: 36px;
-  padding: 6px 12px;
+  grid-template-columns: repeat(2, minmax(42px, 1fr));
+  gap: 3px;
+  padding: 3px;
   border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  font-weight: 800;
+  background: rgba(23, 107, 93, 0.08);
   border: 1px solid rgba(23, 107, 93, 0.16);
+}
+
+.unit-option {
+  display: inline-grid;
+  place-items: center;
+  min-height: 32px;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
   font-family: inherit;
   font-size: 13px;
+  font-weight: 800;
   transition:
+    color 160ms ease,
     background 160ms ease,
-    transform 160ms ease;
+    box-shadow 160ms ease;
 }
 
-.unit:hover {
-  background: #d5ebe4;
-  transform: translateY(-1px);
+.unit-option:hover {
+  color: var(--accent-strong);
+}
+
+.unit-option[aria-pressed="true"] {
+  background: var(--panel);
+  color: var(--accent-strong);
+  box-shadow: 0 4px 12px rgba(23, 107, 93, 0.12);
 }
 
 .drop-zone {

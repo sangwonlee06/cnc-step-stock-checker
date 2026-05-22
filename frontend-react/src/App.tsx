@@ -928,9 +928,24 @@ export function App() {
               <p className="eyebrow">STEP to stock size</p>
               <h1>STEP Stock Size Calculator</h1>
             </div>
-            <button className="unit" title="Switch unit" onClick={() => setUnit(unit === "in" ? "mm" : "in")}>
-              {unitLabel}
-            </button>
+            <div className="unit-switch" aria-label="Display unit">
+              <button
+                className="unit-option"
+                type="button"
+                aria-pressed={unit === "in"}
+                onClick={() => setUnit("in")}
+              >
+                IN
+              </button>
+              <button
+                className="unit-option"
+                type="button"
+                aria-pressed={unit === "mm"}
+                onClick={() => setUnit("mm")}
+              >
+                MM
+              </button>
+            </div>
           </div>
 
           <label
