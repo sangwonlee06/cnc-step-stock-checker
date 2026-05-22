@@ -301,18 +301,30 @@ h1 {
   gap: 8px;
   padding: 5px 12px;
   color: var(--ink);
+  cursor: pointer;
   font-size: 13px;
   line-height: 1.25;
-  transition: background 140ms ease;
+  border-left: 3px solid transparent;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
 }
 
 .part-row:hover {
   background: rgba(23, 107, 93, 0.055);
 }
 
+.part-row[data-selected="true"] {
+  border-left-color: #e08436;
+  background: rgba(224, 132, 54, 0.12);
+  color: #54321f;
+}
+
 .part-row input {
   margin: 0;
   accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .part-name {

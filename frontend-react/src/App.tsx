@@ -235,11 +235,17 @@ function buildHierarchyRows(model: OvModel, fileName: string): PartEntry[] {
 function PartRow({
   entry,
   disabledNodeIds,
+  isSelected,
   onToggle,
+  onSelect,
+  registerRow,
 }: {
   entry: PartEntry;
   disabledNodeIds: Set<number>;
+  isSelected: boolean;
   onToggle: (entry: PartEntry, checked: boolean) => void;
+  onSelect: (entry: PartEntry) => void;
+  registerRow: (nodeId: number, element: HTMLDivElement | null) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const hasEnabled = nodeHasEnabledMesh(entry.node, disabledNodeIds);
@@ -252,13 +258,24 @@ function PartRow({
   }, [hasDisabled, hasEnabled]);
 
   return (
-    <label className="part-row" style={{ paddingLeft: `${10 + entry.depth * 16}px` }}>
+    <div
+      ref={(element) => registerRow(entry.node.GetId(), element)}
+      className="part-row"
+      data-selected={isSelected ? "true" : "false"}
+      onClick={() => onSelect(entry)}
+      style={{ paddingLeft: `${10 + entry.depth * 16}px` }}
+    >
       <input
         ref={inputRef}
         type="checkbox"
+        aria-label={`Include ${entry.name}`}
         checked={hasEnabled}
         data-node-id={entry.node.GetId()}
-        onChange={(event) => onToggle(entry, event.currentTarget.checked)}
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => {
+          onSelect(entry);
+          onToggle(entry, event.currentTarget.checked);
+        }}
       />
       <span
         className="part-name"
@@ -266,7 +283,7 @@ function PartRow({
       >
         {entry.name}
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -322,6 +339,17 @@ function isNodeEffectivelyVisible(node: OvNode, disabledNodeIds: Set<number>): b
     current = current.GetParent();
   }
   return true;
+}
+
+function isNodeInSubtree(node: OvNode, root: OvNode): boolean {
+  let current: OvNode | null = node;
+  while (current) {
+    if (current.GetId() === root.GetId()) {
+      return true;
+    }
+    current = current.GetParent();
+  }
+  return false;
 }
 
 function calculateSelectedGeometry(model: OvModel, disabledNodeIds: Set<number>): SelectedGeometry | null {
@@ -585,12 +613,16 @@ export function App() {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [partEntries, setPartEntries] = useState<PartEntry[]>([]);
   const [disabledNodeIds, setDisabledNodeIds] = useState<Set<number>>(() => new Set());
+  const [selectedPartNodeId, setSelectedPartNodeId] = useState<number | null>(null);
   const [emptySelection, setEmptySelection] = useState(false);
   const viewerElRef = useRef<HTMLDivElement>(null);
   const embeddedViewerRef = useRef<OvEmbeddedViewer | null>(null);
   const modelRootNodeRef = useRef<OvNode | null>(null);
   const fullModelPayloadRef = useRef<StepAnalysisPayload | null>(null);
   const disabledNodeIdsRef = useRef<Set<number>>(new Set());
+  const partEntriesRef = useRef<PartEntry[]>([]);
+  const selectedPartNodeRef = useRef<OvNode | null>(null);
+  const partRowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const loadTokenRef = useRef(0);
 
   useEffect(() => {
@@ -614,8 +646,12 @@ export function App() {
   const resetSelectionUi = () => {
     modelRootNodeRef.current = null;
     disabledNodeIdsRef.current = new Set();
+    partEntriesRef.current = [];
+    selectedPartNodeRef.current = null;
+    partRowRefs.current.clear();
     setDisabledNodeIds(new Set());
     setPartEntries([]);
+    setSelectedPartNodeId(null);
     setViewerVisible(false);
   };
 
@@ -645,6 +681,65 @@ export function App() {
     embeddedViewer.GetViewer().SetMeshesVisibility((meshUserData) => {
       return isNodeEffectivelyVisible(meshUserData.originalMeshInstance.node, nextDisabledNodeIds);
     });
+    updateViewerHighlight();
+  };
+
+  const updateViewerHighlight = (selectedNode: OvNode | null = selectedPartNodeRef.current) => {
+    const embeddedViewer = embeddedViewerRef.current;
+    if (!embeddedViewer || !window.OV) {
+      return;
+    }
+
+    const highlightColor = new window.OV.RGBColor(224, 132, 54);
+    embeddedViewer.GetViewer().SetMeshesHighlight(highlightColor, (meshUserData) => {
+      if (!selectedNode) {
+        return false;
+      }
+
+      const meshNode = meshUserData.originalMeshInstance.node;
+      return isNodeEffectivelyVisible(meshNode, disabledNodeIdsRef.current) && isNodeInSubtree(meshNode, selectedNode);
+    });
+  };
+
+  const registerPartRow = (nodeId: number, element: HTMLDivElement | null) => {
+    if (element) {
+      partRowRefs.current.set(nodeId, element);
+    } else {
+      partRowRefs.current.delete(nodeId);
+    }
+  };
+
+  const scrollPartRowIntoView = (nodeId: number) => {
+    window.requestAnimationFrame(() => {
+      partRowRefs.current.get(nodeId)?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    });
+  };
+
+  const findPartEntryForNode = (node: OvNode): PartEntry | null => {
+    let current: OvNode | null = node;
+    while (current) {
+      const entry = partEntriesRef.current.find((candidate) => candidate.node.GetId() === current?.GetId());
+      if (entry) {
+        return entry;
+      }
+      current = current.GetParent();
+    }
+    return null;
+  };
+
+  const selectPartNode = (node: OvNode | null, shouldScroll = false) => {
+    const entry = node ? findPartEntryForNode(node) : null;
+    const selectedNode = entry?.node ?? null;
+    selectedPartNodeRef.current = selectedNode;
+    setSelectedPartNodeId(selectedNode?.GetId() ?? null);
+    updateViewerHighlight(selectedNode);
+
+    if (selectedNode && shouldScroll) {
+      scrollPartRowIntoView(selectedNode.GetId());
+    }
   };
 
   const updateSelectedBoundingResult = (nextDisabledNodeIds: Set<number>) => {
@@ -732,10 +827,24 @@ export function App() {
             const model = embeddedViewerRef.current.GetModel();
             modelRootNodeRef.current = model.GetRootNode();
             const nextDisabledNodeIds = new Set<number>();
+            const nextPartEntries = buildHierarchyRows(model, file.name);
             disabledNodeIdsRef.current = nextDisabledNodeIds;
+            partEntriesRef.current = nextPartEntries;
             setDisabledNodeIds(nextDisabledNodeIds);
-            setPartEntries(buildHierarchyRows(model, file.name));
+            setPartEntries(nextPartEntries);
             updateViewerVisibility(nextDisabledNodeIds);
+            selectPartNode(null);
+            embeddedViewerRef.current.GetViewer().SetMouseClickHandler((button, mouseCoords) => {
+              if (button !== 1 || !embeddedViewerRef.current || !window.OV) {
+                return;
+              }
+
+              const meshUserData = embeddedViewerRef.current
+                .GetViewer()
+                .GetMeshUserDataUnderMouse(window.OV.IntersectionMode.MeshOnly, mouseCoords);
+
+              selectPartNode(meshUserData?.originalMeshInstance.node ?? null, true);
+            });
             embeddedViewerRef.current.Resize();
             fullModelPayloadRef.current = await fullModelAnalysisPromise;
             if (currentLoadToken !== loadTokenRef.current) {
@@ -873,7 +982,10 @@ export function App() {
                       key={entry.node.GetId()}
                       entry={entry}
                       disabledNodeIds={disabledNodeIds}
+                      isSelected={selectedPartNodeId === entry.node.GetId()}
                       onToggle={handlePartToggle}
+                      onSelect={(selectedEntry) => selectPartNode(selectedEntry.node)}
+                      registerRow={registerPartRow}
                     />
                   ))
                 )}

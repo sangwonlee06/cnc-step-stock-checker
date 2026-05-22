@@ -23,6 +23,11 @@ declare global {
     z: number;
   };
 
+  type OvMouseCoords = {
+    x: number;
+    y: number;
+  };
+
   type OvMeshInstance = {
     node: OvNode;
     EnumerateVertices(callback: (vertex: OvVertex) => void): void;
@@ -33,8 +38,15 @@ declare global {
     EnumerateMeshInstances(callback: (meshInstance: OvMeshInstance) => void): void;
   };
 
+  type OvMeshUserData = {
+    originalMeshInstance: OvMeshInstance;
+  };
+
   type OvViewer = {
-    SetMeshesVisibility(callback: (meshUserData: { originalMeshInstance: OvMeshInstance }) => boolean): void;
+    SetMouseClickHandler(callback: (button: number, mouseCoords: OvMouseCoords) => void): void;
+    SetMeshesHighlight(highlightColor: OvColor, callback: (meshUserData: OvMeshUserData) => boolean): void;
+    SetMeshesVisibility(callback: (meshUserData: OvMeshUserData) => boolean): void;
+    GetMeshUserDataUnderMouse(intersectionMode: number, mouseCoords: OvMouseCoords): OvMeshUserData | null;
   };
 
   type OvEmbeddedViewer = {
@@ -58,6 +70,10 @@ declare global {
     RGBAColor: new (r: number, g: number, b: number, a: number) => OvColor;
     RGBColor: new (r: number, g: number, b: number) => OvColor;
     EdgeSettings: new (showEdges: boolean, color: OvColor, threshold: number) => unknown;
+    IntersectionMode: {
+      MeshOnly: number;
+      MeshAndLine: number;
+    };
   };
 
   interface Window {
