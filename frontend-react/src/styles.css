@@ -101,8 +101,8 @@ h1 {
   gap: 3px;
   padding: 3px;
   border-radius: 999px;
-  background: rgba(23, 107, 93, 0.08);
-  border: 1px solid rgba(23, 107, 93, 0.16);
+  background: rgba(23, 107, 93, 0.1);
+  border: 0;
   cursor: pointer;
   font-family: inherit;
 }
@@ -131,7 +131,7 @@ h1 {
 .unit-option[aria-pressed="true"] {
   background: var(--panel);
   color: var(--accent-strong);
-  box-shadow: 0 4px 12px rgba(23, 107, 93, 0.12);
+  box-shadow: none;
 }
 
 .drop-zone {
