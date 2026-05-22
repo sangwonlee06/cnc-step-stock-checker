@@ -928,24 +928,25 @@ export function App() {
               <p className="eyebrow">STEP to stock size</p>
               <h1>STEP Stock Size Calculator</h1>
             </div>
-            <div className="unit-switch" aria-label="Display unit">
-              <button
+            <button
+              className="unit-switch"
+              type="button"
+              aria-label={`Display unit: ${unitLabel}. Click to switch to ${unit === "in" ? "MM" : "IN"}.`}
+              onClick={() => setUnit(unit === "in" ? "mm" : "in")}
+            >
+              <span
                 className="unit-option"
-                type="button"
                 aria-pressed={unit === "in"}
-                onClick={() => setUnit("in")}
               >
                 IN
-              </button>
-              <button
+              </span>
+              <span
                 className="unit-option"
-                type="button"
                 aria-pressed={unit === "mm"}
-                onClick={() => setUnit("mm")}
               >
                 MM
-              </button>
-            </div>
+              </span>
+            </button>
           </div>
 
           <label
